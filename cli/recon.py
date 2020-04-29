@@ -44,6 +44,8 @@ class ParameterObj():
 
 def main(run_params):
     try:
+        print("this is a stupid message")
+        print("this is a another one")
         main_time = timer()
         args = docopt(__doc__)
         print(args)
