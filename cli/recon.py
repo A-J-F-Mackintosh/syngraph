@@ -1,6 +1,6 @@
 """
 
-Usage: syngraph analyse -g <FILE> -t <FILE> -n <STR,STR> [-o <STR> -h]
+Usage: syngraph recon -g <FILE> -t <FILE> -n <STR,STR> [-o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>                       Syngraph file
