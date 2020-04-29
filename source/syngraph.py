@@ -7,34 +7,51 @@ import networkx as nx
 import collections
 pd.set_option('display.max_rows', None)
 
-def reconstruct_fitch(syngraph, tree, node):
+def reconstruct_syngraphs_for_each_tree_node(syngraph, tree, algorithm='fitch'):
     '''
     - input: syngraph, tree, target_tree_node
     - output: novel Graph with fitch-parsimonious edges for a given tree node
     '''
-    edge_sets_by_taxon = syngraph.get_edge_sets_by_taxon() 
-    edge_sets_by_tree_node = {}
-    for tree_node in tree.traverse(strategy='postorder'):
-        if tree_node.name in edge_sets_by_taxon:
-            edge_sets_by_tree_node[tree_node.name] = edge_sets_by_taxon[tree_node.name]
-        else:
-            intersection = set.intersection(
-                *[edge_sets_by_tree_node[child_node.name] for child_node in tree_node.get_children()]
-                )
-            if len(intersection) >= 2:
-                edge_sets_by_tree_node[tree_node.name] = intersection
-            else:
-                edge_sets_by_tree_node[tree_node.name] = set.union(
-                    *[edge_sets_by_tree_node[child_node.name] for child_node in tree_node.get_children()]
-                    )   
-    for tree_node in tree.traverse(strategy='levelorder'):
-        if not tree_node.is_root():
-            parent_tree_node = tree_node.up
-            intersection = edge_sets_by_tree_node[parent_tree_node.name].intersection(edge_sets_by_tree_node[tree_node.name])
-            if len(intersection) >= 2:
-                edge_sets_by_tree_node[tree_node.name] = intersection
-            else:
-                edge_sets_by_tree_node[tree_node.name] = edge_sets_by_tree_node[parent_tree_node.name].union(edge_sets_by_tree_node[tree_node.name])
+    if algorithm == 'fitch':
+        edge_sets_by_tree_node = {}
+        for graph_node_id in syngraph.nodes:
+            edge_sets_by_taxon = syngraph.get_target_edge_sets_by_taxon(graph_node_id)
+            
+            for tree_node in tree.traverse(strategy='postorder'):
+                if tree_node.name in edge_sets_by_taxon:
+                    edge_sets_by_tree_node[tree_node.name] = edge_sets_by_taxon[tree_node.name]
+                else:
+                    intersection = set.intersection(*[edge_sets_by_tree_node[child_node.name] for child_node in tree_node.get_children()])
+                    if len(intersection) >= 2:
+                        edge_sets_by_tree_node[tree_node.name] = intersection
+                    else:
+                        edge_sets_by_tree_node[tree_node.name] = set.union(
+                            *[edge_sets_by_tree_node[child_node.name] for child_node in tree_node.get_children()]
+                            )
+            for tree_node in tree.traverse(strategy='levelorder'):
+                if not tree_node.is_root():
+                    parent_tree_node = tree_node.up
+                    intersection = edge_sets_by_tree_node[parent_tree_node.name].intersection(edge_sets_by_tree_node[tree_node.name])
+                    if len(intersection) >= 2:
+                        edge_sets_by_tree_node[tree_node.name] = intersection
+            # remove false links
+            false_links = cut_links(edges_candidates, self, tree_f, target_tree_node)
+            if len(false_links) > 0:
+                for link in false_links:
+                    edges_candidates.remove(link)
+            # remove edges that link to terminal nodes
+            terminals = []
+            for edge in edges_candidates:
+                if "Terminal_" in edge[0] or "Terminal_" in edge[1]:
+                    terminals.append(edge)
+            for t in terminals:
+                edges_candidates.remove(t)
+            # add edges to list
+            edges_recon += list(edges_candidates)
+        #########################################################################
+        reconGraph = SynGraph('%s.recon_%s' % (self.outprefix, target_tree_node))
+        reconGraph.build_from_edges(edges_recon, taxa=target_tree_node)
+        return reconGraph
 
     edges = [(u,v) for u,v in edge_sets_by_tree_node[node.name]]
     taxa = set([leaf.name for leaf in node.get_leaves()])
@@ -133,8 +150,20 @@ def cut_links(edges, syngraph, tree, node):
 #############################################################################################
 
 class Syngraph(nx.Graph):
+    '''
+    [ToDo]
+    - write documentation for Syngraph about which data is stored where
+
+    - Cut_links : edge-pruning
+        Caution: dom broke ['seqs_by_taxon']
+        should work on any edge-attribute  (by taxon) instead
+            - 'synteny': intra-sequence > inter-sequence
+            - 'distance': shorter_edges > longer_edges 
+            ...
+    
+    '''
     def __init__(self, name='', **attr):
-        nx.Graph.__init__(self, name=name, taxa=set(), terminal_nodes=set(), **attr)
+        nx.Graph.__init__(self, name=name, taxa=set(), **attr)
         
     def __repr__(self):
        return "Syngraph(name=%r, taxa=%r, ...)" % (self.name, self.taxa) 
@@ -201,19 +230,19 @@ class Syngraph(nx.Graph):
                 if not prev_markerObj.name is None:
                     # deal with terminal marker on prev seq
                     self.nodes[prev_markerObj.name]['terminal'].add(prev_markerObj.taxon)
-                    self.graph['terminal_nodes'].add(prev_markerObj.name)
                 self.nodes[markerObj.name]['terminal'].add(markerObj.taxon)
-                self.graph['terminal_nodes'].add(markerObj.name)
             prev_markerObj = markerObj
-        self.graph['terminal_nodes'].add(markerObj.name)
         self.nodes[markerObj.name]['terminal'].add(markerObj.taxon)
 
-    def get_edge_sets_by_taxon(self):
-        edge_sets_by_taxon = collections.defaultdict(set)
-        for u, v, taxa in self.edges.data('taxa'):
+    def get_target_edge_sets_by_taxon(self, graph_node_id):
+        target_edge_sets_by_taxon = collections.defaultdict(set)
+        for u, v, taxa in self.edges([graph_node_id], data='taxa'):
             for taxon in taxa:
-                edge_sets_by_taxon[taxon].add(frozenset((u, v)))
-        return edge_sets_by_taxon
+                target_edge_sets_by_taxon[taxon].add(frozenset((u, v)))
+        for taxon, target_edge_set in target_edge_sets_by_taxon.items():
+            if len(target_edge_set) == 1:
+                target_edge_sets_by_taxon[taxon].add(frozenset((graph_node_id, '%s.terminal' % (graph_node_id))))
+        return target_edge_sets_by_taxon
 
     def show_metrics(self):
         taxon_count = len(self.graph['taxa'])

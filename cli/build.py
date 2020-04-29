@@ -97,15 +97,6 @@ def main(run_params):
         graph_file = syngraph.save(parameterObj, check_consistency=True)
         print("[+] Saved Syngraph in %r" % graph_file)
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
-        # #plot_graph(
-        # #    synGraph,
-        # #    no_multigraph=args['--no_multigraph'], 
-        # #    label_singletons=args['--label_singletons'])
-        # reconGraph = synGraph.reconstruct(tree_f=args['--tree'], target_tree_node=args['--tree_node'])
-        # plot_graph(
-        #     reconGraph,
-        #     no_multigraph=args['--no_multigraph'], 
-        #     label_singletons=args['--label_singletons'])
     except KeyboardInterrupt:
         sys.stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - main_time))
         exit(-1)

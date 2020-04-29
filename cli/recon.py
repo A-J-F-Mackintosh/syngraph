@@ -58,8 +58,8 @@ def main(run_params):
         reconstructed_syngraph = sg.reconstruct_fitch(syngraph, parameterObj.tree, parameterObj.node)
         print(reconstructed_syngraph)
         print("[+] Save Syngraph to file ...")
-        graph_file = reconstructed_syngraph.save(parameterObj, check_consistency=True)
-        print("[+] Saved Syngraph in %r" % graph_file)
+        #graph_file = reconstructed_syngraph.save(parameterObj, check_consistency=True)
+        #print("[+] Saved Syngraph in %r" % graph_file)
 
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
     except KeyboardInterrupt:
