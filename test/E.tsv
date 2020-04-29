@@ -1,0 +1,33 @@
+# TEST
+# TEST
+# Busco id	Status	Sequence	Gene Start	Gene End	Score	Length	OrthoDB url	Description
+marker_1	Complete	E_seq_1	10	11	100.0	1	test	test
+marker_6	Complete	E_seq_1	20	21	100.0	1	test	test
+marker_5	Complete	E_seq_1	30	31	100.0	1	test	test
+marker_4	Complete	E_seq_1	40	41	100.0	1	test	test
+marker_3	Complete	E_seq_1	50	51	100.0	1	test	test
+marker_2	Complete	E_seq_1	60	61	100.0	1	test	test
+marker_7	Complete	E_seq_1	70	71	100.0	1	test	test
+marker_8	Complete	E_seq_1	80	81	100.0	1	test	test
+marker_9	Complete	E_seq_1	90	91	100.0	1	test	test
+marker_10	Complete	E_seq_1	100	101	100.0	1	test	test
+marker_11	Complete	E_seq_2	10	11	100.0	1	test	test
+marker_12	Complete	E_seq_2	20	21	100.0	1	test	test
+marker_13	Complete	E_seq_2	30	31	100.0	1	test	test
+marker_18	Complete	E_seq_2	40	41	100.0	1	test	test
+marker_17	Complete	E_seq_3	10	11	100.0	1	test	test
+marker_16	Complete	E_seq_3	20	21	100.0	1	test	test
+marker_15	Complete	E_seq_3	30	31	100.0	1	test	test
+marker_14	Complete	E_seq_3	40	41	100.0	1	test	test
+marker_19	Complete	E_seq_3	50	51	100.0	1	test	test
+marker_20	Complete	E_seq_3	60	61	100.0	1	test	test
+marker_21	Complete	E_seq_4	10	11	100.0	1	test	test
+marker_22	Complete	E_seq_4	20	21	100.0	1	test	test
+marker_23	Complete	E_seq_4	30	31	100.0	1	test	test
+marker_24	Complete	E_seq_4	40	41	100.0	1	test	test
+marker_25	Complete	E_seq_4	50	51	100.0	1	test	test
+marker_28	Complete	E_seq_4	60	61	100.0	1	test	test
+marker_27	Complete	E_seq_4	70	71	100.0	1	test	test
+marker_26	Complete	E_seq_4	80	81	100.0	1	test	test
+marker_29	Complete	E_seq_4	90	91	100.0	1	test	test
+marker_30	Complete	E_seq_4	100	101	100.0	1	test	test
