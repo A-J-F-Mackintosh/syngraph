@@ -20,7 +20,7 @@ import pathlib
 import pandas as pd
 import collections
 from timeit import default_timer as timer
-from lib import syngraph as sg
+from source import syngraph as sg
 
 def parse_markerObjs(parameterObj):
     tmp_markerObjs = []

@@ -17,7 +17,7 @@ from docopt import docopt
 import pathlib
 import ete3
 from timeit import default_timer as timer
-from lib import syngraph as sg
+from source import syngraph as sg
 
 class ParameterObj():
     def __init__(self, args):
