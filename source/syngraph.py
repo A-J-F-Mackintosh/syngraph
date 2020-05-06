@@ -32,15 +32,14 @@ def reconstruct_syngraphs_for_each_tree_node(syngraph, tree, algorithm='fitch'):
     - input: syngraph, tree
     - output: novel graphs with fitch edges for each internal tree node
     '''
-    edge_lists_by_tree_node = {}
+    gene_order_data = collections.defaultdict(dict) # nested dict, graph_node --> taxon --> edges
     if algorithm == 'fitch':
         for graph_node_id in syngraph.nodes:
             edge_sets_by_taxon = syngraph.get_target_edge_sets_by_taxon(graph_node_id)
-            fitch_edges_by_tree_node = fitch(edge_sets_by_taxon, 2, tree)
+            gene_order_data[graph_node_id] = fitch(edge_sets_by_taxon, 2, tree)
             #######
             # TBI #
             #######
-            # add edges to edge_lists_by_tree_node
             # make graphs from edge_lists_by_tree_node
 
 def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
@@ -70,15 +69,8 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fit
                     del synteny_data[frozenset(set_of_2_markers)]
         for set_of_2_markers in synteny_data: # loop over keys and fitch reconstruct the internal nodes
             synteny_data[set_of_2_markers] = fitch(synteny_data[frozenset(set_of_2_markers)], 1, tree)
-        # synteny_data is now a dict that tells you for a given pair of markers and an internal node
+        # synteny_data is now a nested dict that tells you for a given pair of markers and an internal node
         # whether the two markers are syntenic
-    edge_list = []
-    for marker in synteny_data:
-        if synteny_data[marker]["n1"] == {"True"}:
-            markers = tuple(marker)
-            edge_list.append(markers)
-    recon_linkage_groups = Syngraph()
-    recon_linkage_groups.add_edges_from(edge_list, attr_dict={'taxa': "n1"})
     #######
     # TBI #
     #######
