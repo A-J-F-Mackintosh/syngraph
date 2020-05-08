@@ -7,145 +7,81 @@ import networkx as nx
 import collections
 pd.set_option('display.max_rows', None)
 
+def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon should be a dict, with keys as taxon and states as sets
+    states_by_tree_node = {}
+    for tree_node in tree.traverse(strategy='postorder'):
+        if tree_node.name in states_by_taxon:
+            states_by_tree_node[tree_node.name] = states_by_taxon[tree_node.name]
+        else:
+            intersection = set.intersection(*[states_by_tree_node[child_node.name] for child_node in tree_node.get_children()])
+            if len(intersection) >= number_of_states:
+                states_by_tree_node[tree_node.name] = intersection
+            else:
+                states_by_tree_node[tree_node.name] = set.union(
+                    *[states_by_tree_node[child_node.name] for child_node in tree_node.get_children()])
+    for tree_node in tree.traverse(strategy='levelorder'):
+        if not tree_node.is_root():
+            parent_tree_node = tree_node.up
+            intersection = states_by_tree_node[parent_tree_node.name].intersection(states_by_tree_node[tree_node.name])
+            if len(intersection) >= number_of_states:
+                states_by_tree_node[tree_node.name] = intersection
+    return(states_by_tree_node)
+
 def reconstruct_syngraphs_for_each_tree_node(syngraph, tree, algorithm='fitch'):
     '''
-    - input: syngraph, tree, target_tree_node
-    - output: novel Graph with fitch-parsimonious edges for a given tree node
+    - input: syngraph, tree
+    - output: novel graphs with fitch edges for each internal tree node
     '''
+    gene_order_data = collections.defaultdict(dict) # nested dict, graph_node --> taxon --> edges
     if algorithm == 'fitch':
-        edge_sets_by_tree_node = {}
         for graph_node_id in syngraph.nodes:
             edge_sets_by_taxon = syngraph.get_target_edge_sets_by_taxon(graph_node_id)
-            
-            for tree_node in tree.traverse(strategy='postorder'):
-                if tree_node.name in edge_sets_by_taxon:
-                    edge_sets_by_tree_node[tree_node.name] = edge_sets_by_taxon[tree_node.name]
-                else:
-                    intersection = set.intersection(*[edge_sets_by_tree_node[child_node.name] for child_node in tree_node.get_children()])
-                    if len(intersection) >= 2:
-                        edge_sets_by_tree_node[tree_node.name] = intersection
-                    else:
-                        edge_sets_by_tree_node[tree_node.name] = set.union(
-                            *[edge_sets_by_tree_node[child_node.name] for child_node in tree_node.get_children()]
-                            )
-            for tree_node in tree.traverse(strategy='levelorder'):
-                if not tree_node.is_root():
-                    parent_tree_node = tree_node.up
-                    intersection = edge_sets_by_tree_node[parent_tree_node.name].intersection(edge_sets_by_tree_node[tree_node.name])
-                    if len(intersection) >= 2:
-                        edge_sets_by_tree_node[tree_node.name] = intersection
-            # remove false links
-            false_links = cut_links(edges_candidates, self, tree_f, target_tree_node)
-            if len(false_links) > 0:
-                for link in false_links:
-                    edges_candidates.remove(link)
-            # remove edges that link to terminal nodes
-            terminals = []
-            for edge in edges_candidates:
-                if "Terminal_" in edge[0] or "Terminal_" in edge[1]:
-                    terminals.append(edge)
-            for t in terminals:
-                edges_candidates.remove(t)
-            # add edges to list
-            edges_recon += list(edges_candidates)
-        #########################################################################
-        reconGraph = SynGraph('%s.recon_%s' % (self.outprefix, target_tree_node))
-        reconGraph.build_from_edges(edges_recon, taxa=target_tree_node)
-        return reconGraph
+            gene_order_data[graph_node_id] = fitch(edge_sets_by_taxon, 2, tree)
+            #######
+            # TBI #
+            #######
+            # make graphs from edge_lists_by_tree_node
 
-    edges = [(u,v) for u,v in edge_sets_by_tree_node[node.name]]
-    taxa = set([leaf.name for leaf in node.get_leaves()])
-    reconstructed_syngraph = Syngraph()
-    reconstructed_syngraph.from_edges(edges, taxa)
-    reconstructed_syngraph.show_metrics()
-    reconstructed_syngraph.plot('recon.pdf')
-    return reconstructed_syngraph
+def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
+    '''
+    - input: syngraph, tree
+    - output: for each internal tree node, a list of sets with each set being markers in a linkage group
+    '''
+    synteny_data = collections.defaultdict(dict) # nested dict, set_of_2_markers --> taxon --> True/False
+    if algorithm == 'fitch':
+        for i in range(0, len(list(syngraph))): # i and j form unique pairwise comparisons between markers
+            for j in range(i+1, len(list(syngraph))):
+                set_of_2_markers = {list(syngraph)[i], list(syngraph)[j]}
+                for taxon in syngraph.graph['taxa']:
+                    synteny = set() # whether markers are syntenic, needs to be a set for fitch algorithm
+                    if syngraph.nodes[list(syngraph)[i]]['seqs_by_taxon'][taxon] == \
+                    syngraph.nodes[list(syngraph)[j]]['seqs_by_taxon'][taxon]:
+                        synteny.add("True")
+                    else:
+                        synteny.add("False")
+                    synteny_data[frozenset(set_of_2_markers)][taxon] = synteny
+                # check whether there are any matches, if not then remove markers
+                synteny_match = False
+                for taxon in syngraph.graph['taxa']:
+                    if synteny_data[frozenset(set_of_2_markers)][taxon] == {"True"}:
+                        synteny_match = True
+                if synteny_match == False:
+                    del synteny_data[frozenset(set_of_2_markers)]
+        for set_of_2_markers in synteny_data: # loop over keys and fitch reconstruct the internal nodes
+            synteny_data[set_of_2_markers] = fitch(synteny_data[frozenset(set_of_2_markers)], 1, tree)
+        # synteny_data is now a nested dict that tells you for a given pair of markers and an internal node
+        # whether the two markers are syntenic
+    #######
+    # TBI #
+    #######
+    # cannot be saved (yet)
+    # cannot be plotted (yet)
+
+
 
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
 
-def cut_links(edges, syngraph, tree, node):
-    #####################################################
-    # good reconstructions should have two edges per node
-    false_links = []
-    if len(edges) == 2:
-        pass
-    # bad reconstructions have > two edges and therefore uncertainty
-    else:
-        for edge in edges:
-            # check whether edges link nodes with the same seqs_by_taxon
-            # this can't be done for edge linking to terminal nodes
-            if "Terminal_" in edge[0] or "Terminal_" in edge[1]:
-                pass
-            else:
-                if syngraph.graph.nodes[edge[0]]['seqs_by_taxon'] != syngraph.graph.nodes[edge[1]]['seqs_by_taxon']:
-                    a = syngraph.graph.nodes[edge[0]]['seqs_by_taxon']
-                    b = syngraph.graph.nodes[edge[1]]['seqs_by_taxon']
-                    # links is a set of taxa for which these two nodes are on different scaffolds/chromosomes
-                    links = {i for i, j in zip(a.keys(), b.keys()) if a[i] != b[j]}
-                    ########################################################################################
-                    # now reconstruct whether the ancestral genome has these two node on the same chromosome
-                    # "1" = same chromosome, "0" = different chromosome
-                    reconstruct_links = {}
-                    target = node
-                    # go up the tree
-                    for tree_node in tree.traverse(strategy='postorder'):
-                        if not tree_node.is_leaf():
-                            # get info about tree_node
-                            leaves = frozenset(tree_node.get_leaves())
-                            children = tree_node.get_children()
-                            # collect child states 
-                            child_counter = 0
-                            child_links_1 = set()
-                            child_links_2 = set()
-                            for child in children:
-                                child_counter += 1
-                                # if child is a leaf then collect edge state from c
-                                if len(child.get_leaves()) == 1:
-                                    taxon = str(child)[3:]
-                                    if taxon in links:
-                                        if child_counter == 1:
-                                            child_links_1.add("0")
-                                        elif child_counter == 2:
-                                            child_links_2.add("0")
-                                    else:
-                                        if child_counter == 1:
-                                            child_links_1.add("1")
-                                        elif child_counter == 2:
-                                            child_links_2.add("1")
-                                # if child is an internal node then look in the reconstruct_links for link state
-                                else:
-                                    if child_counter == 1:
-                                        child_links_1 = reconstruct_links[frozenset(child.get_leaves())]
-                                    elif child_counter == 2:
-                                        child_links_2 = reconstruct_links[frozenset(child.get_leaves())]
-                            # reconstruct current link state from children
-                            if len(child_links_1.intersection(child_links_2)) == 1:
-                                reconstruct_links[leaves] = child_links_1.intersection(child_links_2)
-                            else:
-                                reconstruct_links[leaves] = child_links_1.union(child_links_2)
-                    # now go down the tree
-                    for tree_node in tree.traverse(strategy='preorder'):
-                        if not tree_node.is_leaf():
-                            tree_node_links = reconstruct_links[frozenset(tree_node.get_leaves())]
-                            children = tree_node.get_children()
-                            child_counter = 0
-                            for child in children:
-                                if not child.is_leaf():
-                                    child_counter += 1
-                                    if child_counter == 1:
-                                        child_links_1 = reconstruct_links[frozenset(child.get_leaves())]
-                                        if len(tree_node_links.intersection(child_links_1)) == 1:
-                                            reconstruct_links[frozenset(child.get_leaves())] = tree_node_links.intersection(child_links_1)
-                                    elif child_counter == 2:
-                                        child_links_2 =  reconstruct_links[frozenset(child.get_leaves())]
-                                        if len(tree_node_links.intersection(child_links_2)) == 1:
-                                            reconstruct_links[frozenset(child.get_leaves())] = tree_node_links.intersection(child_links_2)
-                    #############################################################################################################
-                    # if the ancestral node has these graph nodes on different chromosomes, then the edge represents a false link 
-                    if set("0") == reconstruct_links[frozenset(target.get_leaves())]:
-                        false_links.append(edge)
-    return(false_links)
 
 #############################################################################################
 
@@ -215,9 +151,10 @@ class Syngraph(nx.Graph):
             self.graph['taxa'].add(markerObj.taxon)                                   
             if not markerObj.name in self:
                 # add node if it does not exist yet                                              
-                self.add_node(markerObj.name, taxa=set(), terminal=set())               
+                self.add_node(markerObj.name, taxa=set(), terminal=set(), seqs_by_taxon={})             
             # add taxon to node (useful if '--missing')
             self.nodes[markerObj.name]['taxa'].add(markerObj.taxon)
+            self.nodes[markerObj.name]['seqs_by_taxon'][markerObj.taxon] = markerObj.seq
             # check whether same seq/taxon
             if markerObj.is_syntenic(prev_markerObj):
                 # add edge if it does not exist
