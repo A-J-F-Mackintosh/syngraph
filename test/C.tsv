@@ -1,33 +1,33 @@
 # TEST
 # TEST
-# Busco id	Status	Sequence	Gene Start	Gene End	Score	Length	OrthoDB url	Description
-marker_1	Complete	C_seq_1	10	11	100.0	1	test	test
-marker_2	Complete	C_seq_1	20	21	100.0	1	test	test
-marker_3	Complete	C_seq_1	30	31	100.0	1	test	test
-marker_6	Complete	C_seq_1	40	41	100.0	1	test	test
-marker_10	Complete	C_seq_1	50	51	100.0	1	test	test
-marker_9	Complete	C_seq_1	60	61	100.0	1	test	test
-marker_5	Complete	C_seq_1	70	71	100.0	1	test	test
-marker_4	Complete	C_seq_1	80	81	100.0	1	test	test
-marker_8	Complete	C_seq_1	90	91	100.0	1	test	test
-marker_7	Complete	C_seq_1	100	101	100.0	1	test	test
-marker_11	Complete	C_seq_2	10	11	100.0	1	test	test
-marker_12	Complete	C_seq_2	20	21	100.0	1	test	test
-marker_19	Complete	C_seq_2	30	31	100.0	1	test	test
-marker_18	Complete	C_seq_2	40	41	100.0	1	test	test
-marker_17	Complete	C_seq_2	50	51	100.0	1	test	test
-marker_16	Complete	C_seq_2	60	61	100.0	1	test	test
-marker_15	Complete	C_seq_2	70	71	100.0	1	test	test
-marker_14	Complete	C_seq_2	80	81	100.0	1	test	test
-marker_13	Complete	C_seq_2	90	91	100.0	1	test	test
-marker_20	Complete	C_seq_2	100	101	100.0	1	test	test
-marker_21	Complete	C_seq_3	10	11	100.0	1	test	test
-marker_22	Complete	C_seq_3	20	21	100.0	1	test	test
-marker_23	Complete	C_seq_3	30	31	100.0	1	test	test
-marker_24	Complete	C_seq_3	40	41	100.0	1	test	test
-marker_25	Complete	C_seq_3	50	51	100.0	1	test	test
-marker_26	Complete	C_seq_3	60	61	100.0	1	test	test
-marker_27	Complete	C_seq_3	70	71	100.0	1	test	test
-marker_28	Complete	C_seq_3	80	81	100.0	1	test	test
-marker_29	Complete	C_seq_3	90	91	100.0	1	test	test
-marker_30	Complete	C_seq_3	100	101	100.0	1	test	test
+# Busco id	Status	Sequence	Gene Start	Gene End	Orientation	Score	Length	OrthoDB url	Description
+marker_1	Complete	C_seq_1	10	11	+	100.0	1	test	test
+marker_2	Complete	C_seq_1	20	21	+	100.0	1	test	test
+marker_3	Complete	C_seq_1	30	31	+	100.0	1	test	test
+marker_6	Complete	C_seq_1	40	41	+	100.0	1	test	test
+marker_10	Complete	C_seq_1	50	51	-	100.0	1	test	test
+marker_9	Complete	C_seq_1	60	61	-	100.0	1	test	test
+marker_5	Complete	C_seq_1	70	71	+	100.0	1	test	test
+marker_4	Complete	C_seq_1	80	81	+	100.0	1	test	test
+marker_8	Complete	C_seq_1	90	91	-	100.0	1	test	test
+marker_7	Complete	C_seq_1	100	101	-	100.0	1	test	test
+marker_11	Complete	C_seq_2	10	11	+	100.0	1	test	test
+marker_12	Complete	C_seq_2	20	21	+	100.0	1	test	test
+marker_19	Complete	C_seq_2	30	31	-	100.0	1	test	test
+marker_18	Complete	C_seq_2	40	41	-	100.0	1	test	test
+marker_17	Complete	C_seq_2	50	51	-	100.0	1	test	test
+marker_16	Complete	C_seq_2	60	61	-	100.0	1	test	test
+marker_15	Complete	C_seq_2	70	71	-	100.0	1	test	test
+marker_14	Complete	C_seq_2	80	81	-	100.0	1	test	test
+marker_13	Complete	C_seq_2	90	91	-	100.0	1	test	test
+marker_20	Complete	C_seq_2	100	101	+	100.0	1	test	test
+marker_21	Complete	C_seq_3	10	11	+	100.0	1	test	test
+marker_22	Complete	C_seq_3	20	21	+	100.0	1	test	test
+marker_23	Complete	C_seq_3	30	31	+	100.0	1	test	test
+marker_24	Complete	C_seq_3	40	41	+	100.0	1	test	test
+marker_25	Complete	C_seq_3	50	51	+	100.0	1	test	test
+marker_26	Complete	C_seq_3	60	61	+	100.0	1	test	test
+marker_27	Complete	C_seq_3	70	71	+	100.0	1	test	test
+marker_28	Complete	C_seq_3	80	81	+	100.0	1	test	test
+marker_29	Complete	C_seq_3	90	91	+	100.0	1	test	test
+marker_30	Complete	C_seq_3	100	101	+	100.0	1	test	test

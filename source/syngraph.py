@@ -186,15 +186,29 @@ class Syngraph(nx.Graph):
         node_total_count = nx.number_of_nodes(self)
         edge_total_count = nx.number_of_edges(self)
         connected_component_count = nx.number_connected_components(self)
-        edge_monomorphic_count = sum([1 for (_, __, taxa) in self.edges.data('taxa') if len(taxa) == taxon_count])
-        edge_singleton_count = sum([1 for _, __, taxa in self.edges.data('taxa') if len(taxa) == 1]) 
+        taxa_per_edge = {}
+        edges_per_node = {}
+        for i in range(1, len(self.graph['taxa'])+1):
+            taxa_per_edge[i] = sum([1 for (_, __, taxa) in self.edges.data('taxa') if len(taxa) == i])
+        for j in range(1, len(self.graph['taxa'])*2):
+            edges_per_node[j] = 0
+        for graph_node_id in self.nodes:
+            neighbours = self.degree(graph_node_id)
+            edges_per_node[neighbours] += 1
+        for edge in self.edges():
+            if "marker_6" in edge:
+                print(edge)
         print("[=] ====================================")
         print("[=] Taxa = %s" % taxon_count)
         print("[=] Nodes (Markers) = %s" % node_total_count)
         print("[=] Edges (Adjacencies)") 
         print("[=]   distinct = %s" % edge_total_count)
-        print("[=]   monomorphic = %s" % edge_monomorphic_count)
-        print("[=]   singleton = %s" % edge_singleton_count)
+        print("[=]   taxa per edge\tcount")
+        for key in taxa_per_edge:
+            print("[=]   {}\t{}".format(key, taxa_per_edge[key]))
+        print("[=]   edges per node\tcount")
+        for key in edges_per_node:
+            print("[=]   {}\t{}".format(key, edges_per_node[key]))
         print("[=] Subgraphs (connected components) = %s" % connected_component_count)
         print("[=] ====================================")
         
@@ -244,7 +258,8 @@ class Syngraph(nx.Graph):
         return out_f
 
 class MarkerObj():
-    def __init__(self, name=None, desc=None, status=None, taxon=None, seq=None, start=float("nan"), end=float("nan"), length=float("nan")):
+    def __init__(self, name=None, desc=None, status=None, taxon=None, seq=None, start=float("nan"), end=float("nan"), 
+        orientation=None, length=float("nan")):
         self.name = name
         self.desc = desc if desc is not None else name
         self.status = status
@@ -252,6 +267,7 @@ class MarkerObj():
         self.seq = seq
         self.start = start
         self.end = end
+        self.orientation = orientation
         self.length = length
 
     def __repr__(self):

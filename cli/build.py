@@ -32,14 +32,16 @@ def parse_markerObjs(parameterObj):
             taxon = infile.split("/")[-1].split(".")[0]
             df = pd.read_csv(infile, 
                     sep='\t', 
-                    usecols=[0, 1, 2, 3, 4, 6], 
+                    usecols=[0, 1, 2, 3, 4, 5, 7], 
                     skiprows=3,
-                    names=['name', 'status', 'seq', 'start', 'end', 'length'], 
-                    dtype={'name': str, 'status': str , 'seq': str, 'start': float, 'end': float, 'length': float}
+                    names=['name', 'status', 'seq', 'start', 'end', 'orientation', 'length'], 
+                    dtype={'name': str, 'status': str , 'seq': str, 'start': float, 'end': float, 'orientation': str, 
+                    'length': float}
                     ).sort_values(['seq', 'start'], ascending=[True, True])
-            for name, status, seq, start, end, length in df.values.tolist():
+            for name, status, seq, start, end, orientation, length in df.values.tolist():
                 if status in status_allowed:
-                    markerObj = sg.MarkerObj(name=name, status=status, taxon=taxon, seq=seq, start=start, end=end, length=length)
+                    markerObj = sg.MarkerObj(name=name, status=status, taxon=taxon, seq=seq, start=start, end=end, 
+                    orientation=orientation, length=length)
                     tmp_markerObjs.append(markerObj)
         if parameterObj.missing == True:
             return tmp_markerObjs

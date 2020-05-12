@@ -1,33 +1,33 @@
 # TEST
 # TEST
-# Busco id	Status	Sequence	Gene Start	Gene End	Score	Length	OrthoDB url	Description
-marker_8	Complete	O_seq_1	10	11	100.0	1	test	test
-marker_7	Complete	O_seq_1	20	21	100.0	1	test	test
-marker_6	Complete	O_seq_1	30	31	100.0	1	test	test
-marker_5	Complete	O_seq_1	40	41	100.0	1	test	test
-marker_4	Complete	O_seq_1	50	51	100.0	1	test	test
-marker_3	Complete	O_seq_1	60	61	100.0	1	test	test
-marker_2	Complete	O_seq_1	70	71	100.0	1	test	test
-marker_1	Complete	O_seq_1	80	81	100.0	1	test	test
-marker_9	Complete	O_seq_1	90	91	100.0	1	test	test
-marker_10	Complete	O_seq_1	100	101	100.0	1	test	test
-marker_11	Complete	O_seq_1	110	111	100.0	1	test	test
-marker_12	Complete	O_seq_1	120	121	100.0	1	test	test
-marker_13	Complete	O_seq_1	130	131	100.0	1	test	test
-marker_14	Complete	O_seq_1	140	141	100.0	1	test	test
-marker_15	Complete	O_seq_1	150	151	100.0	1	test	test
-marker_16	Complete	O_seq_1	160	161	100.0	1	test	test
-marker_17	Complete	O_seq_1	170	171	100.0	1	test	test
-marker_18	Complete	O_seq_1	180	181	100.0	1	test	test
-marker_19	Complete	O_seq_1	190	191	100.0	1	test	test
-marker_20	Complete	O_seq_1	200	201	100.0	1	test	test
-marker_21	Complete	O_seq_2	10	11	100.0	1	test	test
-marker_23	Complete	O_seq_2	20	21	100.0	1	test	test
-marker_25	Complete	O_seq_2	30	31	100.0	1	test	test
-marker_24	Complete	O_seq_2	40	41	100.0	1	test	test
-marker_22	Complete	O_seq_2	50	51	100.0	1	test	test
-marker_26	Complete	O_seq_2	60	61	100.0	1	test	test
-marker_27	Complete	O_seq_2	70	71	100.0	1	test	test
-marker_28	Complete	O_seq_2	80	81	100.0	1	test	test
-marker_29	Complete	O_seq_2	90	91	100.0	1	test	test
-marker_30	Complete	O_seq_2	100	101	100.0	1	test	test
+# Busco id	Status	Sequence	Gene Start	Gene End	Orientation	Score	Length	OrthoDB url	Description
+marker_8	Complete	O_seq_1	10	11	-	100.0	1	test	test
+marker_7	Complete	O_seq_1	20	21	-	100.0	1	test	test
+marker_6	Complete	O_seq_1	30	31	-	100.0	1	test	test
+marker_5	Complete	O_seq_1	40	41	-	100.0	1	test	test
+marker_4	Complete	O_seq_1	50	51	-	100.0	1	test	test
+marker_3	Complete	O_seq_1	60	61	-	100.0	1	test	test
+marker_2	Complete	O_seq_1	70	71	-	100.0	1	test	test
+marker_1	Complete	O_seq_1	80	81	-	100.0	1	test	test
+marker_9	Complete	O_seq_1	90	91	+	100.0	1	test	test
+marker_10	Complete	O_seq_1	100	101	+	100.0	1	test	test
+marker_11	Complete	O_seq_1	110	111	+	100.0	1	test	test
+marker_12	Complete	O_seq_1	120	121	+	100.0	1	test	test
+marker_13	Complete	O_seq_1	130	131	+	100.0	1	test	test
+marker_14	Complete	O_seq_1	140	141	+	100.0	1	test	test
+marker_15	Complete	O_seq_1	150	151	+	100.0	1	test	test
+marker_16	Complete	O_seq_1	160	161	+	100.0	1	test	test
+marker_17	Complete	O_seq_1	170	171	+	100.0	1	test	test
+marker_18	Complete	O_seq_1	180	181	+	100.0	1	test	test
+marker_19	Complete	O_seq_1	190	191	+	100.0	1	test	test
+marker_20	Complete	O_seq_1	200	201	+	100.0	1	test	test
+marker_21	Complete	O_seq_2	10	11	+	100.0	1	test	test
+marker_23	Complete	O_seq_2	20	21	-	100.0	1	test	test
+marker_25	Complete	O_seq_2	30	31	-	100.0	1	test	test
+marker_24	Complete	O_seq_2	40	41	-	100.0	1	test	test
+marker_22	Complete	O_seq_2	50	51	+	100.0	1	test	test
+marker_26	Complete	O_seq_2	60	61	+	100.0	1	test	test
+marker_27	Complete	O_seq_2	70	71	+	100.0	1	test	test
+marker_28	Complete	O_seq_2	80	81	+	100.0	1	test	test
+marker_29	Complete	O_seq_2	90	91	+	100.0	1	test	test
+marker_30	Complete	O_seq_2	100	101	+	100.0	1	test	test
