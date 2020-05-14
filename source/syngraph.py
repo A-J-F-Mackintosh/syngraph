@@ -195,9 +195,6 @@ class Syngraph(nx.Graph):
         for graph_node_id in self.nodes:
             neighbours = self.degree(graph_node_id)
             edges_per_node[neighbours] += 1
-        for edge in self.edges():
-            if "marker_6" in edge:
-                print(edge)
         print("[=] ====================================")
         print("[=] Taxa = %s" % taxon_count)
         print("[=] Nodes (Markers) = %s" % node_total_count)
@@ -258,21 +255,17 @@ class Syngraph(nx.Graph):
         return out_f
 
 class MarkerObj():
-    def __init__(self, name=None, desc=None, status=None, taxon=None, seq=None, start=float("nan"), end=float("nan"), 
-        orientation=None, length=float("nan")):
+    def __init__(self, name=None, desc=None, status=None, taxon=None, seq=None, coord=float("nan")):
         self.name = name
         self.desc = desc if desc is not None else name
         self.status = status
         self.taxon = taxon
         self.seq = seq
-        self.start = start
-        self.end = end
-        self.orientation = orientation
-        self.length = length
+        self.coord = coord
 
     def __repr__(self):
-        return "MarkerObj(name=%r, desc=%r, status=%r, taxon=%r, seq=%r, start=%f, end=%f, length=%f)" % (
-            self.name, self.desc, self.status, self.taxon, self.seq, self.start, self.end, self.length) 
+        return "MarkerObj(name=%r, desc=%r, status=%r, taxon=%r, seq=%r, coord=%f)" % (
+            self.name, self.desc, self.status, self.taxon, self.seq, self.coord) 
 
     def __eq__(self, other):
         if isinstance(other, MarkerObj):
@@ -287,8 +280,8 @@ class MarkerObj():
 
     def distance(self, other):
         if self.is_syntenic(other):
-            if self.start == other.start and self.end == other.end:
+            if self.coord == other.coord:
                 return 0.0
             else:
-                return float(max(self.start, other.start) - min(self.end, other.end))                
+                return float(max(self.coord, other.coord) - min(self.coord, other.coord))                
         return float("nan")
