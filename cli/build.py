@@ -37,11 +37,10 @@ def parse_markerObjs(parameterObj):
             df = pd.read_csv(infile, 
                     sep='\t', 
                     usecols=[0, 1, 2, 3, 4, 5], 
-                    skiprows=3,
                     names=['name', 'status', 'seq', 'start', 'end', 'sign'], 
                     dtype={'name': str, 'status': str , 'seq': str, 'start': float, 'end': float, 'sign': str}
                     ).sort_values(['seq', 'start'], ascending=[True, True])
-            for name, status, seq, start, end, sign, length in df.values.tolist():
+            for name, status, seq, start, end, sign in df.values.tolist():
                 if status in status_allowed:
                     if parameterObj.sign:
                         if sign == "+":

@@ -47,7 +47,7 @@ def get_orientation(directory, full_table):
 								if g_row.start == ft_row.start:
 									if g_row.end == g_row.end:
 										full_table.loc[ft_row.Index,'orientation'] = g_row.orientation
-	full_table.to_csv(args["--outprefix"]+'.tsv', index=False, sep="\t")
+	full_table.to_csv(args["--outprefix"]+'.tsv', index=False, sep="\t", header=False)
 
 args = docopt(__doc__)
 full_table = get_full_table(args["--directory"])

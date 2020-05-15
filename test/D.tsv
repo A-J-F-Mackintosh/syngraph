@@ -1,33 +1,30 @@
-# TEST
-# TEST
-# Busco id	Status	Sequence	Gene Start	Gene End	Orientation	Score	Length	OrthoDB url	Description
-marker_1	Complete	D_seq_1	10	11	+	100.0	1	test	test
-marker_2	Complete	D_seq_1	20	21	+	100.0	1	test	test
-marker_3	Complete	D_seq_1	30	31	+	100.0	1	test	test
-marker_6	Complete	D_seq_1	40	41	+	100.0	1	test	test
-marker_7	Complete	D_seq_1	50	51	+	100.0	1	test	test
-marker_8	Complete	D_seq_1	60	61	+	100.0	1	test	test
-marker_4	Complete	D_seq_1	70	71	-	100.0	1	test	test
-marker_5	Complete	D_seq_1	80	81	-	100.0	1	test	test
-marker_9	Complete	D_seq_1	90	91	+	100.0	1	test	test
-marker_10	Complete	D_seq_1	100	101	+	100.0	1	test	test
-marker_11	Complete	D_seq_2	10	11	+	100.0	1	test	test
-marker_12	Complete	D_seq_2	20	21	+	100.0	1	test	test
-marker_19	Complete	D_seq_2	30	31	-	100.0	1	test	test
-marker_18	Complete	D_seq_2	40	41	-	100.0	1	test	test
-marker_17	Complete	D_seq_2	50	51	-	100.0	1	test	test
-marker_16	Complete	D_seq_2	60	61	-	100.0	1	test	test
-marker_15	Complete	D_seq_2	70	71	-	100.0	1	test	test
-marker_14	Complete	D_seq_2	80	81	-	100.0	1	test	test
-marker_13	Complete	D_seq_2	90	91	-	100.0	1	test	test
-marker_20	Complete	D_seq_2	100	101	+	100.0	1	test	test
-marker_21	Complete	D_seq_3	10	11	+	100.0	1	test	test
-marker_22	Complete	D_seq_3	20	21	+	100.0	1	test	test
-marker_23	Complete	D_seq_3	30	31	+	100.0	1	test	test
-marker_24	Complete	D_seq_3	40	41	+	100.0	1	test	test
-marker_25	Complete	D_seq_3	50	51	+	100.0	1	test	test
-marker_26	Complete	D_seq_3	60	61	+	100.0	1	test	test
-marker_27	Complete	D_seq_4	10	11	+	100.0	1	test	test
-marker_28	Complete	D_seq_4	20	21	+	100.0	1	test	test
-marker_29	Complete	D_seq_4	30	31	+	100.0	1	test	test
-marker_30	Complete	D_seq_4	40	41	+	100.0	1	test	test
+marker_1	Complete	D_seq_1	10	11	+
+marker_2	Complete	D_seq_1	20	21	+
+marker_3	Complete	D_seq_1	30	31	+
+marker_6	Complete	D_seq_1	40	41	+
+marker_7	Complete	D_seq_1	50	51	+
+marker_8	Complete	D_seq_1	60	61	+
+marker_4	Complete	D_seq_1	70	71	-
+marker_5	Complete	D_seq_1	80	81	-
+marker_9	Complete	D_seq_1	90	91	+
+marker_10	Complete	D_seq_1	100	101	+
+marker_11	Complete	D_seq_2	10	11	+
+marker_12	Complete	D_seq_2	20	21	+
+marker_19	Complete	D_seq_2	30	31	-
+marker_18	Complete	D_seq_2	40	41	-
+marker_17	Complete	D_seq_2	50	51	-
+marker_16	Complete	D_seq_2	60	61	-
+marker_15	Complete	D_seq_2	70	71	-
+marker_14	Complete	D_seq_2	80	81	-
+marker_13	Complete	D_seq_2	90	91	-
+marker_20	Complete	D_seq_2	100	101	+
+marker_21	Complete	D_seq_3	10	11	+
+marker_22	Complete	D_seq_3	20	21	+
+marker_23	Complete	D_seq_3	30	31	+
+marker_24	Complete	D_seq_3	40	41	+
+marker_25	Complete	D_seq_3	50	51	+
+marker_26	Complete	D_seq_3	60	61	+
+marker_27	Complete	D_seq_4	10	11	+
+marker_28	Complete	D_seq_4	20	21	+
+marker_29	Complete	D_seq_4	30	31	+
+marker_30	Complete	D_seq_4	40	41	+
