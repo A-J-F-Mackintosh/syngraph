@@ -3,9 +3,114 @@ import ete3
 import matplotlib
 import matplotlib.cm as cm
 import pandas as pd
+from tqdm import tqdm
 import networkx as nx
 import collections
 pd.set_option('display.max_rows', None)
+
+from operator import attrgetter
+import pandas as pd
+
+def load_markerObjs(parameterObj):
+    '''
+    marker := orthogroup/busco
+    locus := protein i.e. position of "marker" in genome of taxon
+
+    - independent of "status", all markers/loci should be parsed into markerObjs
+    - sort them out when loading into syngraph (syngraph has to know about allowed statuses, pass as args upon __init__)
+
+    '''
+    if parameterObj.label == 'busco':
+        tmp_markerObjs = []
+        status_allowed = {'Complete'}
+        if parameterObj.fragmented:
+            status_allowed.add('Fragmented') 
+        for label, infiles in parameterObj.infiles_by_label.items(): # this might be needed later when OrthoFinder parsing is implemented...
+            for infile in infiles:
+                taxon_markerObjs = []
+                taxon = infile.split("/")[-1].split(".")[0]
+                df = pd.read_csv(infile, 
+                        sep='\t', 
+                        names=['name', 'status', 'seq', 'start', 'end', 'sign'], 
+                        dtype={'name': str, 'status': str , 'seq': str, 'start': float, 'end': float, 'sign': str}
+                        ).sort_values(['seq', 'start'], ascending=[True, True])
+                for idx, (name, status, seq, start, end, sign) in enumerate(df.values.tolist()):
+                    if status in status_allowed:
+                        if parameterObj.sign:
+                            if sign == "+":
+                                coords_by_name = {"%s_head" % name: start, "%s_tail" % name: end}
+                            elif sign == "-":
+                                coords_by_name = {"%s_head" % name: end, "%s_tail" % name: start}
+                            else:
+                                sys.exit("[X] Sign must be '+' or '-' in line %r in file %r, not %r" % (idx, infile, sign))
+                            for _name, _coord in coords_by_name.items():
+                                markerObj= MarkerObj(name=_name, status=status, taxon=taxon, seq=seq, coord=_coord)
+                                taxon_markerObjs.append(markerObj)
+                        else:
+                            markerObj = MarkerObj(name=name, status=status, taxon=taxon, seq=seq, coord=start)
+                            taxon_markerObjs.append(markerObj)
+                taxon_markerObjs = sorted(taxon_markerObjs, key=attrgetter('seq', 'coord'))
+                tmp_markerObjs.extend(taxon_markerObjs)
+            if parameterObj.missing == True:
+                return tmp_markerObjs
+            else:
+                markerObjs = []
+                counter = collections.Counter([tmp.name for tmp in tmp_markerObjs])
+                for markerObj in tmp_markerObjs:
+                    if counter[markerObj.name] == len(infiles):
+                        markerObjs.append(markerObj)
+                return markerObjs
+    elif parameterObj.label == 'ortho':
+        '''
+        not dealing yet with:
+        - missing
+        - duplicates
+        '''
+        orthogroup_df = pd.read_csv(parameterObj.orthogroups, sep='\t')
+        header = orthogroup_df.columns.values.tolist()
+        marker_by_locus_by_taxon = collections.defaultdict(dict)
+        locus_by_taxon_by_marker = collections.defaultdict(dict)
+        locus_by_type_by_taxon = collections.defaultdict(lambda: collections.defaultdict(set))
+        taxa = []
+        for row in orthogroup_df.values.tolist():
+            marker = row[0]
+            for taxon, loci in zip(header[1:], row[1:]):
+                if isinstance(loci, str):
+                    for locus in loci.split(", "):                        
+                        marker_by_locus_by_taxon[taxon][locus] = marker
+                        locus_by_taxon_by_marker[marker][taxon] = locus
+                        locus_by_type_by_taxon[taxon]['tsv'].add(locus)
+        markerObjs = []
+        locus_types = ['bed', 'tsv', 'both', 'not_bed', 'not_tsv']
+        for label, infiles in parameterObj.infiles_by_label.items():
+            for infile in tqdm(infiles, total=len(infiles), desc="[%] ", ncols=100):
+                taxon = infile.split("/")[-1].split(".")[0]
+                taxa.append(taxon)
+                bed_df = pd.read_csv(infile, sep='\t', 
+                    names=['seq', 'start', 'end', 'desc'], 
+                    dtype={'seq': str, 'start': int , 'end': int, 'desc': str})
+                for idx, (seq, start, end, locus) in enumerate(bed_df.values.tolist()):
+                    locus_by_type_by_taxon[taxon]['bed'].add(locus)
+                    marker = marker_by_locus_by_taxon[taxon].get(locus, None)
+                    if not marker is None:
+                        if len(locus_by_taxon_by_marker[marker][taxon]) > 1:
+                            status = 'Duplicted'
+                        elif len(locus_by_taxon_by_marker[marker][taxon]) == 1:
+                            status = 'Single'
+                        else:
+                            sys.exit("[X] %s" % (idx, seq, start, end, locus))
+                        markerObj = MarkerObj(name=marker, desc=locus, status=status, taxon=taxon, seq=seq, coord=start)
+                        markerObjs.append(markerObj)
+                locus_by_type_by_taxon[taxon]['both'] = locus_by_type_by_taxon[taxon]['tsv'].intersection(locus_by_type_by_taxon[taxon]['bed'])
+                locus_by_type_by_taxon[taxon]['not_bed'] = locus_by_type_by_taxon[taxon]['tsv'] - locus_by_type_by_taxon[taxon]['bed']
+                locus_by_type_by_taxon[taxon]['not_tsv'] = locus_by_type_by_taxon[taxon]['bed'] - locus_by_type_by_taxon[taxon]['tsv']
+        # Sanity check whether all loci were found in both TSV and BED
+        for taxon in taxa:
+            if not len(locus_by_type_by_taxon[taxon]['tsv']) == len(locus_by_type_by_taxon[taxon]['both']):
+                print("[-] Not all loci in Orthogroups file were found in BED file: %s" % taxon)
+                for locus_type in locus_types:
+                    print("[-]\t%s: %s [%s...]" % (locus_type, len(locus_by_type_by_taxon[taxon][locus_type]), ",".join(list(locus_by_type_by_taxon[taxon][locus_type])[0:3])))
+        return markerObjs
 
 def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon should be a dict, with keys as taxon and states as sets
     states_by_tree_node = {}
@@ -27,20 +132,34 @@ def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon should be 
                 states_by_tree_node[tree_node.name] = intersection
     return(states_by_tree_node)
 
-def reconstruct_syngraphs_for_each_tree_node(syngraph, tree, algorithm='fitch'):
+def reconstruct_syngraphs_by_tree_node(syngraph, tree, algorithm='fitch'):
     '''
     - input: syngraph, tree
     - output: novel graphs with fitch edges for each internal tree node
     '''
-    gene_order_data = collections.defaultdict(dict) # nested dict, graph_node --> taxon --> edges
     if algorithm == 'fitch':
+        edges_by_tree_node_by_graph_node = collections.defaultdict(dict) # nested dict, graph_node --> taxon --> edges
+        edges_by_tree_node = collections.defaultdict(list)
+        taxa_by_tree_node = collections.defaultdict(set)
         for graph_node_id in syngraph.nodes:
             edge_sets_by_taxon = syngraph.get_target_edge_sets_by_taxon(graph_node_id)
-            gene_order_data[graph_node_id] = fitch(edge_sets_by_taxon, 2, tree)
-            #######
-            # TBI #
-            #######
-            # make graphs from edge_lists_by_tree_node
+            edges_by_tree_node_by_graph_node[graph_node_id] = fitch(edge_sets_by_taxon, 2, tree)
+        for graph_node_id, _edges_by_tree_node in edges_by_tree_node_by_graph_node.items():
+            for tree_node, edges in _edges_by_tree_node.items():
+                for (u, v) in edges:
+                    taxa_under_node = set([node.name for node in (tree&tree_node).iter_leaves()])
+                    taxa_by_tree_node[tree_node].update(taxa_under_node)
+                    edge_taxa = []
+                    for taxon in taxa_under_node:
+                        if frozenset([u, v]) in _edges_by_tree_node[taxon]:
+                            edge_taxa.append(taxon)
+                    edges_by_tree_node[tree_node].append((u, v, {'taxa': edge_taxa}))
+        syngraph_by_tree_node = {}
+        for tree_node, edges in edges_by_tree_node.items():
+            syngraph_by_tree_node[tree_node] = Syngraph()
+            syngraph_by_tree_node[tree_node].from_edges(edges, taxa=taxa_by_tree_node[tree_node])
+            syngraph_by_tree_node[tree_node].plot(outprefix="node_%s" % tree_node)
+    return syngraph_by_tree_node
 
 def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
     '''
@@ -95,14 +214,18 @@ class Syngraph(nx.Graph):
         should work on any edge-attribute  (by taxon) instead
             - 'synteny': intra-sequence > inter-sequence
             - 'distance': shorter_edges > longer_edges 
-            ...
+    - Improve test-dataset: to contain all singleton/edge-cases ... everything must passed this test
+    - Implement orientation case
+    - Implement order-free case
+    - create test-dataset 'butterfly_hard': with P. napi
+    - create test-dataset 'mammals' : chromosomal BUSCOs (10: cow, possum, rat, mouse, human, chimps...)
     
     '''
     def __init__(self, name='', **attr):
         nx.Graph.__init__(self, name=name, taxa=set(), **attr)
         
     def __repr__(self):
-       return "Syngraph(name=%r, taxa=%r, ...)" % (self.name, self.taxa) 
+       return "Syngraph(name=%r, taxa=%r, ...)" % (self.name, self.graph['taxa']) 
 
     def __eq__(self, other):
         if isinstance(other, Syngraph):
@@ -135,14 +258,12 @@ class Syngraph(nx.Graph):
         self.add_edges_from(g.edges(data=True))
         self.graph = g.graph
 
-    def from_edges(self, edges, taxa):
-        if isinstance(taxa, str):
-            taxa = [taxa] 
+    def from_edges(self, edges=[], taxa=set()):
+        '''
+        edges: is list of 3-tuples (u,v, {'taxa': taxa})
+        taxa: is set of all taxa 
+        '''
         self.add_edges_from(edges)
-        for u, v in self.edges:
-            self.edges[u, v]['taxa'] = set(taxa)
-        for node in self.nodes:
-            self.nodes[node]['taxa'] = set(taxa)
         self.graph['taxa'] = set(taxa)
 
     def from_markerObjs(self, markerObjs):
@@ -215,11 +336,11 @@ class Syngraph(nx.Graph):
         if as_multigraph:
             multi_graph = nx.MultiGraph() # create new multigraph
             for node, data in self.nodes.data(True):
-                multi_graph.add_node(node, label='', color='black', width=0.5, shape='point')
+                multi_graph.add_node(node, label=node, color='black', width=0.5, shape='rect')
                 if 'terminal' in data:
                     for taxon in data['terminal']:
                         new_terminal_node = "%s_%s_terminal" % (taxon, node)
-                        multi_graph.add_node(new_terminal_node, color=colour_by_taxon[taxon], label='', width=0.5, shape='point')
+                        multi_graph.add_node(new_terminal_node, color=colour_by_taxon[taxon], label='', width=0.5, shape='rect')
                         multi_graph.add_edge(new_terminal_node, node, penwidth=0.5)
             for u, v, taxa in self.edges.data('taxa'):
                 for taxon in taxa:
