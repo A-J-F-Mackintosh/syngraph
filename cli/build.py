@@ -1,6 +1,6 @@
 """
 
-Usage: syngraph build -d <DIR> [-m|-M] [-f|-F] [-o <STR> -h]
+Usage: syngraph build -d <DIR> [-m|-M] [-f|-F] [-s|-S] [-o <STR> -h]
 
   [Options]
     -d, --dir <DIR>                             Directory containing BUSCO (v4.0.3+) TAXONNAME.*.full_table.tsv files
@@ -9,6 +9,8 @@ Usage: syngraph build -d <DIR> [-m|-M] [-f|-F] [-o <STR> -h]
     -M, --ignore_missing                        Ignore markers that are missing in ≥1 taxa (default)
     -f, --fragmented                            Allow fragmented markers (default)
     -F, --ignore_fragmented                     Ignore fragmented markers 
+    -s, --sign                                  Use sign information (default)
+    -S, --ignore_sign                           Ignore sign information
     -h, --help                                  Show this screen.
 
 """
@@ -16,6 +18,7 @@ Usage: syngraph build -d <DIR> [-m|-M] [-f|-F] [-o <STR> -h]
 import os
 import sys
 from docopt import docopt
+from operator import attrgetter
 import pathlib
 import pandas as pd
 import collections
@@ -29,18 +32,30 @@ def parse_markerObjs(parameterObj):
         status_allowed.add('Fragmented') 
     for label, infiles in parameterObj.infiles_by_label.items(): # this might be needed later when OrthoFinder parsing is implemented...
         for infile in infiles:
+            taxon_markerObjs = []
             taxon = infile.split("/")[-1].split(".")[0]
             df = pd.read_csv(infile, 
                     sep='\t', 
-                    usecols=[0, 1, 2, 3, 4, 6], 
-                    skiprows=3,
-                    names=['name', 'status', 'seq', 'start', 'end', 'length'], 
-                    dtype={'name': str, 'status': str , 'seq': str, 'start': float, 'end': float, 'length': float}
+                    usecols=[0, 1, 2, 3, 4, 5], 
+                    names=['name', 'status', 'seq', 'start', 'end', 'sign'], 
+                    dtype={'name': str, 'status': str , 'seq': str, 'start': float, 'end': float, 'sign': str}
                     ).sort_values(['seq', 'start'], ascending=[True, True])
-            for name, status, seq, start, end, length in df.values.tolist():
+            for name, status, seq, start, end, sign in df.values.tolist():
                 if status in status_allowed:
-                    markerObj = sg.MarkerObj(name=name, status=status, taxon=taxon, seq=seq, start=start, end=end, length=length)
-                    tmp_markerObjs.append(markerObj)
+                    if parameterObj.sign:
+                        if sign == "+":
+                            markerObj_head = sg.MarkerObj(name=name+"_head", status=status, taxon=taxon, seq=seq, coord=start)
+                            markerObj_tail = sg.MarkerObj(name=name+"_tail", status=status, taxon=taxon, seq=seq, coord=end)
+                        elif sign == "-":
+                            markerObj_head = sg.MarkerObj(name=name+"_head", status=status, taxon=taxon, seq=seq, coord=end)
+                            markerObj_tail = sg.MarkerObj(name=name+"_tail", status=status, taxon=taxon, seq=seq, coord=start)
+                        taxon_markerObjs.append(markerObj_head)
+                        taxon_markerObjs.append(markerObj_tail)
+                    else:
+                        markerObj = sg.MarkerObj(name=name, status=status, taxon=taxon, seq=seq, coord=start)
+                        taxon_markerObjs.append(markerObj)
+            taxon_markerObjs = sorted(taxon_markerObjs, key=attrgetter('seq', 'coord'))
+            tmp_markerObjs += taxon_markerObjs
         if parameterObj.missing == True:
             return tmp_markerObjs
         else:
@@ -58,6 +73,7 @@ class ParameterObj():
         self.outprefix = args['--outprefix']
         self.missing = not(args['--ignore_missing']) if args['--ignore_missing'] else (args['--missing'] != args['--ignore_missing'])
         self.fragmented = args['--fragmented'] if args['--fragmented'] else (args['--fragmented'] == args['--ignore_fragmented'])
+        self.sign = args['--sign'] if args['--sign'] else (args['--sign'] == args['--ignore_sign'])
         self._check()
 
     def _get_infiles_by_label(self, directory, data='busco'):
