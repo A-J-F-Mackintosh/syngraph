@@ -57,7 +57,7 @@ def main(run_params):
         print("[+] Reconstructing syngraphs and linkage groups at internal nodes of the following tree:\n%s" % (parameterObj.tree.get_ascii(show_internal=True)))
         reconstructed_syngraphs_by_tree_node = sg.reconstruct_syngraphs_by_tree_node(syngraph, parameterObj.tree)
         # have not tested further ...
-        reconstructed_linkage_groups = sg.reconstruct_linkage_groups_for_each_tree_node(syngraph, parameterObj.tree, algorithm='fitch')
+        #reconstructed_linkage_groups = sg.reconstruct_linkage_groups_for_each_tree_node(syngraph, parameterObj.tree, algorithm='fitch')
         print("[+] Save Syngraph to file ...")
         #graph_file = reconstructed_syngraph.save(parameterObj, check_consistency=True)
         #print("[+] Saved Syngraph in %r" % graph_file)

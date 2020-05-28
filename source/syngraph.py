@@ -112,7 +112,7 @@ def load_markerObjs(parameterObj):
                     print("[-]\t%s: %s [%s...]" % (locus_type, len(locus_by_type_by_taxon[taxon][locus_type]), ",".join(list(locus_by_type_by_taxon[taxon][locus_type])[0:3])))
         return markerObjs
 
-def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon should be a dict, with keys as taxon and states as sets
+def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon_node should be a dict, with keys as taxon and states as sets
     states_by_tree_node = {}
     for tree_node in tree.traverse(strategy='postorder'):
         if tree_node.name in states_by_taxon:
@@ -158,17 +158,27 @@ def reconstruct_syngraphs_by_tree_node(syngraph, tree, algorithm='fitch'):
         for tree_node, edges in edges_by_tree_node.items():
             syngraph_by_tree_node[tree_node] = Syngraph()
             syngraph_by_tree_node[tree_node].from_edges(edges, taxa=taxa_by_tree_node[tree_node])
-            syngraph_by_tree_node[tree_node].plot(outprefix="node_%s" % tree_node)
+            syngraph_by_tree_node[tree_node].show_recon_metrics(True, tree_node)
+            #syngraph_by_tree_node[tree_node].plot(outprefix="node_%s" % tree_node)
     return syngraph_by_tree_node
 
 def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
     '''
     - input: syngraph, tree
     - output: for each internal tree node, a list of sets with each set being markers in a linkage group
+
+    currently way too many comparisons being done, seqs_by_taxon for a node likely have high 
+    multiplicity, this should be exploited somehow as once we know the recon_LG for one node we know 
+    the recon_LG for all nodes with the same seqs_by_taxon...
     '''
     synteny_data = collections.defaultdict(dict) # nested dict, set_of_2_markers --> taxon --> True/False
+    edges_by_tree_node = collections.defaultdict(list)
     if algorithm == 'fitch':
+        counter = 0
         for i in range(0, len(list(syngraph))): # i and j form unique pairwise comparisons between markers
+            counter += 1
+            if counter % 10 == 0:
+                print(counter)
             for j in range(i+1, len(list(syngraph))):
                 set_of_2_markers = {list(syngraph)[i], list(syngraph)[j]}
                 for taxon in syngraph.graph['taxa']:
@@ -190,11 +200,17 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fit
             synteny_data[set_of_2_markers] = fitch(synteny_data[frozenset(set_of_2_markers)], 1, tree)
         # synteny_data is now a nested dict that tells you for a given pair of markers and an internal node
         # whether the two markers are syntenic
-    #######
-    # TBI #
-    #######
-    # cannot be saved (yet)
-    # cannot be plotted (yet)
+    for u, v in synteny_data:
+        for taxon in synteny_data[frozenset([u, v])]:
+            if synteny_data[frozenset([u, v])][taxon] == {"True"}:
+                edges_by_tree_node[taxon].append((u, v, {'taxa': taxon}))
+    LG_by_tree_node = {}
+    for tree_node, edges in edges_by_tree_node.items():
+        LG_by_tree_node[tree_node] = Syngraph()
+        LG_by_tree_node[tree_node].from_edges(edges, taxa=tree_node)
+        if tree_node == "n1":
+            LG_by_tree_node[tree_node].plot(outprefix="LG_node_%s" % tree_node)
+        
 
 
 
@@ -300,6 +316,10 @@ class Syngraph(nx.Graph):
         for taxon, target_edge_set in target_edge_sets_by_taxon.items():
             if len(target_edge_set) == 1:
                 target_edge_sets_by_taxon[taxon].add(frozenset((graph_node_id, '%s.terminal' % (graph_node_id))))
+        for taxon in self.nodes[graph_node_id]['seqs_by_taxon']:
+            if taxon not in target_edge_sets_by_taxon:
+                target_edge_sets_by_taxon[taxon].add(frozenset((graph_node_id, '%s.terminal' % (graph_node_id))))
+                target_edge_sets_by_taxon[taxon].add(frozenset((graph_node_id, '%s.also_terminal' % (graph_node_id))))
         return target_edge_sets_by_taxon
 
     def show_metrics(self):
@@ -327,6 +347,30 @@ class Syngraph(nx.Graph):
         print("[=]   edges per node\tcount")
         for key in edges_per_node:
             print("[=]   {}\t{}".format(key, edges_per_node[key]))
+        print("[=] Subgraphs (connected components) = %s" % connected_component_count)
+        print("[=] ====================================")
+
+    # maybe this could be combined with the above?
+    def show_recon_metrics(self, gene_order, name):
+        connected_component_count = nx.number_connected_components(self)
+        if gene_order == True:
+            edges_per_node = {}
+            for j in range(1, 99):
+                edges_per_node[j] = 0
+            for graph_node_id in self.nodes:
+                neighbours = self.degree(graph_node_id)
+                edges_per_node[neighbours] += 1
+        resolved = 0
+        unresolved = 0
+        for key in edges_per_node:
+            if int(key) > 2:
+                unresolved += edges_per_node[key]
+            else:
+                resolved += edges_per_node[key]
+        print("[=] ====================================")
+        print(name)
+        if gene_order == True:
+            print("[=] Resolved edges = %s" % (resolved / (resolved + unresolved)))
         print("[=] Subgraphs (connected components) = %s" % connected_component_count)
         print("[=] ====================================")
         
