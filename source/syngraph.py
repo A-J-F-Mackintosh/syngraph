@@ -1,5 +1,5 @@
 import sys
-import ete3
+import itertools
 import matplotlib
 import matplotlib.cm as cm
 import pandas as pd
@@ -7,9 +7,27 @@ from tqdm import tqdm
 import networkx as nx
 import collections
 pd.set_option('display.max_rows', None)
+import functools
 
 from operator import attrgetter
 import pandas as pd
+
+'''
+[To Do]
+- Dom:
+    - orthofinder parsing has to be implemented
+    - write LG plotting function, restructure plotting in general (legends!)
+    - all other trello things
+
+- Alex:
+    - test for consistency of taxon-names in tree/filenames in parameterObj
+    - Ask pablo for BUSCOs, test, let him now how to run it himself
+    - Test signed
+    - metrics: 
+        - marker-order-length distributions by tree-node
+        - placements of distinct edges of the same nodes along branches 
+            - basis for event detection (?)
+'''
 
 def load_markerObjs(parameterObj):
     '''
@@ -117,17 +135,19 @@ def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon_node shoul
     for tree_node in tree.traverse(strategy='postorder'):
         if tree_node.name in states_by_taxon:
             states_by_tree_node[tree_node.name] = states_by_taxon[tree_node.name]
-        else:
-            intersection = set.intersection(*[states_by_tree_node[child_node.name] for child_node in tree_node.get_children()])
+        elif not tree_node.is_leaf():
+            intersection = set.intersection(*[states_by_tree_node.get(child_node.name, {False}) for child_node in tree_node.get_children()])
             if len(intersection) >= number_of_states:
                 states_by_tree_node[tree_node.name] = intersection
             else:
                 states_by_tree_node[tree_node.name] = set.union(
-                    *[states_by_tree_node[child_node.name] for child_node in tree_node.get_children()])
+                    *[states_by_tree_node.get(child_node.name, {False}) for child_node in tree_node.get_children()])
+        else:
+            pass
     for tree_node in tree.traverse(strategy='levelorder'):
         if not tree_node.is_root():
             parent_tree_node = tree_node.up
-            intersection = states_by_tree_node[parent_tree_node.name].intersection(states_by_tree_node[tree_node.name])
+            intersection = states_by_tree_node.get(parent_tree_node.name, {False}).intersection(states_by_tree_node.get(tree_node.name, {False}))
             if len(intersection) >= number_of_states:
                 states_by_tree_node[tree_node.name] = intersection
     return(states_by_tree_node)
@@ -143,9 +163,12 @@ def reconstruct_syngraphs_by_tree_node(syngraph, tree, algorithm='fitch'):
         taxa_by_tree_node = collections.defaultdict(set)
         for graph_node_id in syngraph.nodes:
             edge_sets_by_taxon = syngraph.get_target_edge_sets_by_taxon(graph_node_id)
+            #print('edge_sets_by_taxon', edge_sets_by_taxon)
             edges_by_tree_node_by_graph_node[graph_node_id] = fitch(edge_sets_by_taxon, 2, tree)
         for graph_node_id, _edges_by_tree_node in edges_by_tree_node_by_graph_node.items():
             for tree_node, edges in _edges_by_tree_node.items():
+                #print("tree_node", tree_node)
+                #print("edges", edges)
                 for (u, v) in edges:
                     taxa_under_node = set([node.name for node in (tree&tree_node).iter_leaves()])
                     taxa_by_tree_node[tree_node].update(taxa_under_node)
@@ -171,48 +194,33 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fit
     multiplicity, this should be exploited somehow as once we know the recon_LG for one node we know 
     the recon_LG for all nodes with the same seqs_by_taxon...
     '''
-    synteny_data = collections.defaultdict(dict) # nested dict, set_of_2_markers --> taxon --> True/False
+    # synteny_data = collections.defaultdict(dict) 
     edges_by_tree_node = collections.defaultdict(list)
+    
+    coocurence_by_taxon_by_marker_set = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_markers --> taxon --> True/False
+    count = 0 
     if algorithm == 'fitch':
-        counter = 0
-        for i in range(0, len(list(syngraph))): # i and j form unique pairwise comparisons between markers
-            counter += 1
-            if counter % 10 == 0:
-                print(counter)
-            for j in range(i+1, len(list(syngraph))):
-                set_of_2_markers = {list(syngraph)[i], list(syngraph)[j]}
-                for taxon in syngraph.graph['taxa']:
-                    synteny = set() # whether markers are syntenic, needs to be a set for fitch algorithm
-                    if syngraph.nodes[list(syngraph)[i]]['seqs_by_taxon'][taxon] == \
-                    syngraph.nodes[list(syngraph)[j]]['seqs_by_taxon'][taxon]:
-                        synteny.add("True")
-                    else:
-                        synteny.add("False")
-                    synteny_data[frozenset(set_of_2_markers)][taxon] = synteny
-                # check whether there are any matches, if not then remove markers
-                synteny_match = False
-                for taxon in syngraph.graph['taxa']:
-                    if synteny_data[frozenset(set_of_2_markers)][taxon] == {"True"}:
-                        synteny_match = True
-                if synteny_match == False:
-                    del synteny_data[frozenset(set_of_2_markers)]
-        for set_of_2_markers in synteny_data: # loop over keys and fitch reconstruct the internal nodes
-            synteny_data[set_of_2_markers] = fitch(synteny_data[frozenset(set_of_2_markers)], 1, tree)
-        # synteny_data is now a nested dict that tells you for a given pair of markers and an internal node
-        # whether the two markers are syntenic
-    for u, v in synteny_data:
-        for taxon in synteny_data[frozenset([u, v])]:
-            if synteny_data[frozenset([u, v])][taxon] == {"True"}:
-                edges_by_tree_node[taxon].append((u, v, {'taxa': taxon}))
-    LG_by_tree_node = {}
-    for tree_node, edges in edges_by_tree_node.items():
-        LG_by_tree_node[tree_node] = Syngraph()
-        LG_by_tree_node[tree_node].from_edges(edges, taxa=tree_node)
-        if tree_node == "n1":
-            LG_by_tree_node[tree_node].plot(outprefix="LG_node_%s" % tree_node)
-        
-
-
+        print("[+] Loop 1")
+        for taxon in tqdm(syngraph.graph['taxa'], total=len(syngraph.graph['taxa']), desc="[%] ", ncols=100):
+            for seq_id, syntenic_markers in syngraph.graph['marker_ids_by_seq_id_by_taxon'][taxon].items():
+                for marker_set in itertools.combinations(syntenic_markers, 2):
+                    count += 1
+                    coocurence_by_taxon_by_marker_set[frozenset(marker_set)][taxon] = {True}
+        print("[+] Loop 2")
+        for marker_set in tqdm(coocurence_by_taxon_by_marker_set, total=len(coocurence_by_taxon_by_marker_set), desc="[%] ", ncols=100):
+            coocurence_by_taxon_by_marker_set[marker_set] = fitch(coocurence_by_taxon_by_marker_set[marker_set], 1, tree)
+            # coocurence_by_taxon_by_marker_set is now a nested dict that tells you for a given pair of markers and an internal node
+            # whether the two markers are syntenic
+            u, v = tuple(marker_set)
+            for taxon, coocurence in coocurence_by_taxon_by_marker_set[marker_set].items():
+                if coocurence == {True}:
+                    edges_by_tree_node[taxon].append((u, v, {'taxa': taxon}))
+        LG_by_tree_node = {}
+        print("[+] Loop 3")
+        for tree_node, edges in tqdm(edges_by_tree_node.items(), total=len(edges_by_tree_node), desc="[%] ", ncols=100):
+            LG_by_tree_node[tree_node] = Syngraph()
+            LG_by_tree_node[tree_node].from_edges(edges, taxa=set(tree_node))
+            #LG_by_tree_node[tree_node].plot(outprefix="LG_node_%s" % tree_node)
 
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
@@ -284,7 +292,9 @@ class Syngraph(nx.Graph):
 
     def from_markerObjs(self, markerObjs):
         prev_markerObj = MarkerObj(None)
+        marker_ids_by_seq_id_by_taxon = collections.defaultdict(functools.partial(collections.defaultdict, list))
         for markerObj in markerObjs:
+            marker_ids_by_seq_id_by_taxon[markerObj.taxon][markerObj.seq].append(markerObj.name)
             self.graph['taxa'].add(markerObj.taxon)                                   
             if not markerObj.name in self:
                 # add node if it does not exist yet                                              
@@ -307,6 +317,7 @@ class Syngraph(nx.Graph):
                 self.nodes[markerObj.name]['terminal'].add(markerObj.taxon)
             prev_markerObj = markerObj
         self.nodes[markerObj.name]['terminal'].add(markerObj.taxon)
+        self.graph['marker_ids_by_seq_id_by_taxon'] = marker_ids_by_seq_id_by_taxon
 
     def get_target_edge_sets_by_taxon(self, graph_node_id):
         target_edge_sets_by_taxon = collections.defaultdict(set)
