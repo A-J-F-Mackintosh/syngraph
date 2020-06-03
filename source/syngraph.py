@@ -189,24 +189,18 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fit
     '''
     - input: syngraph, tree
     - output: for each internal tree node, a list of sets with each set being markers in a linkage group
-
-    currently way too many comparisons being done, seqs_by_taxon for a node likely have high 
-    multiplicity, this should be exploited somehow as once we know the recon_LG for one node we know 
-    the recon_LG for all nodes with the same seqs_by_taxon...
-    '''
-    # synteny_data = collections.defaultdict(dict) 
+    ''' 
     edges_by_tree_node = collections.defaultdict(list)
-    
     coocurence_by_taxon_by_marker_set = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_markers --> taxon --> True/False
     count = 0 
     if algorithm == 'fitch':
-        print("[+] Loop 1")
+        print("[+] Collecting coocurence data from taxa")
         for taxon in tqdm(syngraph.graph['taxa'], total=len(syngraph.graph['taxa']), desc="[%] ", ncols=100):
             for seq_id, syntenic_markers in syngraph.graph['marker_ids_by_seq_id_by_taxon'][taxon].items():
                 for marker_set in itertools.combinations(syntenic_markers, 2):
                     count += 1
                     coocurence_by_taxon_by_marker_set[frozenset(marker_set)][taxon] = {True}
-        print("[+] Loop 2")
+        print("[+] Estimating coocurence data for ancestral genomes")
         for marker_set in tqdm(coocurence_by_taxon_by_marker_set, total=len(coocurence_by_taxon_by_marker_set), desc="[%] ", ncols=100):
             coocurence_by_taxon_by_marker_set[marker_set] = fitch(coocurence_by_taxon_by_marker_set[marker_set], 1, tree)
             # coocurence_by_taxon_by_marker_set is now a nested dict that tells you for a given pair of markers and an internal node
@@ -216,11 +210,11 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fit
                 if coocurence == {True}:
                     edges_by_tree_node[taxon].append((u, v, {'taxa': taxon}))
         LG_by_tree_node = {}
-        print("[+] Loop 3")
-        for tree_node, edges in tqdm(edges_by_tree_node.items(), total=len(edges_by_tree_node), desc="[%] ", ncols=100):
+        for tree_node, edges in edges_by_tree_node.items():
             LG_by_tree_node[tree_node] = Syngraph()
             LG_by_tree_node[tree_node].from_edges(edges, taxa=set(tree_node))
             #LG_by_tree_node[tree_node].plot(outprefix="LG_node_%s" % tree_node)
+            LG_by_tree_node[tree_node].show_recon_metrics(False, "LG_"+tree_node)
 
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
@@ -232,15 +226,6 @@ class Syngraph(nx.Graph):
     '''
     [ToDo]
     - write documentation for Syngraph about which data is stored where
-
-    - Cut_links : edge-pruning
-        Caution: dom broke ['seqs_by_taxon']
-        should work on any edge-attribute  (by taxon) instead
-            - 'synteny': intra-sequence > inter-sequence
-            - 'distance': shorter_edges > longer_edges 
-    - Improve test-dataset: to contain all singleton/edge-cases ... everything must passed this test
-    - Implement orientation case
-    - Implement order-free case
     - create test-dataset 'butterfly_hard': with P. napi
     - create test-dataset 'mammals' : chromosomal BUSCOs (10: cow, possum, rat, mouse, human, chimps...)
     
@@ -364,6 +349,10 @@ class Syngraph(nx.Graph):
     # maybe this could be combined with the above?
     def show_recon_metrics(self, gene_order, name):
         connected_component_count = nx.number_connected_components(self)
+        chromosome_lengths = []
+        for component in nx.connected_components(self):
+            chromosome_lengths.append(len(component))
+        chromosome_lengths.sort()
         if gene_order == True:
             edges_per_node = {}
             for j in range(1, 99):
@@ -371,18 +360,19 @@ class Syngraph(nx.Graph):
             for graph_node_id in self.nodes:
                 neighbours = self.degree(graph_node_id)
                 edges_per_node[neighbours] += 1
-        resolved = 0
-        unresolved = 0
-        for key in edges_per_node:
-            if int(key) > 2:
-                unresolved += edges_per_node[key]
-            else:
-                resolved += edges_per_node[key]
+            resolved = 0
+            unresolved = 0
+            for key in edges_per_node:
+                if int(key) > 2:
+                    unresolved += edges_per_node[key]
+                else:
+                    resolved += edges_per_node[key]
         print("[=] ====================================")
         print(name)
         if gene_order == True:
             print("[=] Resolved edges = %s" % (resolved / (resolved + unresolved)))
         print("[=] Subgraphs (connected components) = %s" % connected_component_count)
+        print("[=] Subgraph lengths = %s" % chromosome_lengths)
         print("[=] ====================================")
         
     def plot(self, outprefix, cmap='Set2', as_multigraph=True):
