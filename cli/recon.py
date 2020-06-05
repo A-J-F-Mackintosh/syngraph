@@ -1,12 +1,10 @@
 """
 
-Usage: syngraph recon -g <FILE> -t <FILE> -n <STR,STR> [-o <STR> -h]
+Usage: syngraph recon -g <FILE> -t <FILE> [-o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>                       Syngraph file
     -t, --tree <FILE>                           Tree in Newick format
-    -n, --node <STR,STR>                        Target tree node for reconstruction, specified as MRCA of taxa
-                                                    e.g. -n taxon_A,taxon_B
     -o, --outprefix <STR>                       Outprefix [default: test]
     -h, --help                                  Show this screen.
 
@@ -24,7 +22,6 @@ class ParameterObj():
         self.syngraph = self._get_path(args['--syngraph'])
         self.outprefix = args['--outprefix']
         self.tree = self._get_tree(args['--tree'])     # ete3.coretype.tree.TreeNode 
-        self.node = self._get_mrca(args['--node'])     # list of nodes
 
     def _get_tree(self, tree_f):
         tree = ete3.Tree(str(self._get_path(tree_f)))

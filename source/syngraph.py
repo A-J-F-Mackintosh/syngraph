@@ -327,7 +327,7 @@ class Syngraph(nx.Graph):
         edges_per_node = {}
         for i in range(1, len(self.graph['taxa'])+1):
             taxa_per_edge[i] = sum([1 for (_, __, taxa) in self.edges.data('taxa') if len(taxa) == i])
-        for j in range(1, len(self.graph['taxa'])*2):
+        for j in range(1, (len(self.graph['taxa'])+1)*2):
             edges_per_node[j] = 0
         for graph_node_id in self.nodes:
             neighbours = self.degree(graph_node_id)
