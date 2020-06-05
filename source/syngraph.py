@@ -262,6 +262,7 @@ class Syngraph(nx.Graph):
             return graph_file
 
     def get_taxon_syngraph(self, taxon=None):
+        # for x in nx.connected_components(nx.intersection(b.get_taxon_syngraph(taxon='a'), b.get_taxon_syngraph(taxon='b'))): print(len(x))
         if not taxon is None:
             edges = []
             for u, v, taxa in self.edges(data='taxa'):
