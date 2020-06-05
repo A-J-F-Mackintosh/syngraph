@@ -261,6 +261,16 @@ class Syngraph(nx.Graph):
         else:
             return graph_file
 
+    def get_taxon_syngraph(self, taxon=None):
+        if not taxon is None:
+            edges = []
+            for u, v, taxa in self.edges(data='taxa'):
+                if taxon in set(taxa):
+                    edges.append((u, v, {'taxa': set([taxon])}))
+            syngraph = Syngraph()
+            syngraph.from_edges(edges, taxa=set([taxon]))
+            return syngraph
+
     def from_file(self, graph_file):
         g = nx.read_gpickle(graph_file)
         self.add_nodes_from(g.nodes(data=True))
