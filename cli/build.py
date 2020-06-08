@@ -81,6 +81,8 @@ def main(run_params):
         syngraph.from_markerObjs(markerObjs)
         print("[+] Show Syngraph metrics ...")
         syngraph.show_metrics()
+        print("[+] Show colinearity among taxa ...")
+        syngraph.taxon_colinearity()
         print("[+] Save Syngraph to file ...")
         graph_file = syngraph.save(parameterObj, check_consistency=True)
         print("[+] Saved Syngraph in %r" % graph_file)

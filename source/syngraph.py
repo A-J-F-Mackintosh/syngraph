@@ -8,6 +8,7 @@ import networkx as nx
 import collections
 pd.set_option('display.max_rows', None)
 import functools
+import statistics
 
 from operator import attrgetter
 import pandas as pd
@@ -21,13 +22,56 @@ import pandas as pd
 
 - Alex:
     - test for consistency of taxon-names in tree/filenames in parameterObj
-    - Ask pablo for BUSCOs, test, let him now how to run it himself
     - Test signed
     - metrics: 
         - marker-order-length distributions by tree-node
         - placements of distinct edges of the same nodes along branches 
             - basis for event detection (?)
 '''
+
+def cliques2chromosomes(cliques):
+    """
+    finds the largest cliques that are non-overlapping, i.e. chromosomes
+        - sort cliques by size
+        - add largest clique to chromosomes
+        - if a clique overlaps a chromosome then do not add
+        - if a clique overlaps a larger clique then do not add
+    """
+    chromosomes = []
+    cliques.sort(key=len, reverse=True)
+    for clique in cliques:
+        safe = True
+        if len(chromosomes) == 0:
+            chromosomes.append(clique)
+        else:
+            for chromosome in chromosomes:
+                if len(set(chromosome).intersection(set(clique))) > 0:
+                    safe = False
+            if safe == True:
+                for another_clique in cliques:
+                    if len(set(another_clique).intersection(set(clique))) > 0 and len(another_clique) > len(clique):
+                        safe = False
+                if safe == True:
+                    chromosomes.append(clique)
+    ######################################## mop up ######
+    """
+    for clique in cliques:
+        in_chromosomes = False
+        for chromosome in chromosomes:
+            if clique == chromosome:
+                in_chromosomes = True
+        if in_chromosomes == False:
+            overlaps = []
+            for chromosome in chromosomes:
+                if len(set(clique).intersection(set(chromosome))) > 0:
+                    overlaps.append(len(set(clique).intersection(set(chromosome))))
+            if len(overlaps) == 1:
+                for chromosome in chromosomes:
+                    if len(set(clique).intersection(set(chromosome))) > 0:
+                        chromosome += set(clique).difference(set(chromosome))
+    """
+    ###### don't understand behavoir yet ##################
+    return chromosomes
 
 def load_markerObjs(parameterObj):
     '''
@@ -188,7 +232,7 @@ def reconstruct_syngraphs_by_tree_node(syngraph, tree, algorithm='fitch'):
 def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
     '''
     - input: syngraph, tree
-    - output: for each internal tree node, a list of sets with each set being markers in a linkage group
+    - output: for each tree node, a graph where edges represent coocurence of two markers on a chromosome
     ''' 
     edges_by_tree_node = collections.defaultdict(list)
     coocurence_by_taxon_by_marker_set = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_markers --> taxon --> True/False
@@ -207,7 +251,7 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fit
             # whether the two markers are syntenic
             u, v = tuple(marker_set)
             for taxon, coocurence in coocurence_by_taxon_by_marker_set[marker_set].items():
-                if coocurence == {True}:
+                if coocurence != {False}:
                     edges_by_tree_node[taxon].append((u, v, {'taxa': taxon}))
         LG_by_tree_node = {}
         for tree_node, edges in edges_by_tree_node.items():
@@ -262,7 +306,6 @@ class Syngraph(nx.Graph):
             return graph_file
 
     def get_taxon_syngraph(self, taxon=None):
-        # for x in nx.connected_components(nx.intersection(b.get_taxon_syngraph(taxon='a'), b.get_taxon_syngraph(taxon='b'))): print(len(x))
         if not taxon is None:
             edges = []
             for u, v, taxa in self.edges(data='taxa'):
@@ -270,6 +313,9 @@ class Syngraph(nx.Graph):
                     edges.append((u, v, {'taxa': set([taxon])}))
             syngraph = Syngraph()
             syngraph.from_edges(edges, taxa=set([taxon]))
+            for graph_node_id in self.nodes:
+                if graph_node_id not in list(syngraph):
+                    syngraph.add_node(graph_node_id)
             return syngraph
 
     def from_file(self, graph_file):
@@ -360,10 +406,10 @@ class Syngraph(nx.Graph):
     # maybe this could be combined with the above?
     def show_recon_metrics(self, gene_order, name):
         connected_component_count = nx.number_connected_components(self)
-        chromosome_lengths = []
+        cc_lengths = []
         for component in nx.connected_components(self):
-            chromosome_lengths.append(len(component))
-        chromosome_lengths.sort()
+            cc_lengths.append(len(component))
+        cc_lengths.sort()
         if gene_order == True:
             edges_per_node = {}
             for j in range(1, 99):
@@ -378,14 +424,45 @@ class Syngraph(nx.Graph):
                     unresolved += edges_per_node[key]
                 else:
                     resolved += edges_per_node[key]
+        else:
+            cliques = list(nx.find_cliques(self))
+            chromosomes = cliques2chromosomes(cliques)
+            chromosome_lengths = []
+            for chromosome in chromosomes:
+                chromosome_lengths.append(len(chromosome))
+            chromosome_lengths.sort()
         print("[=] ====================================")
         print(name)
         if gene_order == True:
             print("[=] Resolved edges = %s" % (resolved / (resolved + unresolved)))
+        else:
+            print("[=] Chromosomes = %s" % len(chromosomes))
+            print("[=] Chromosome lengths = %s" % chromosome_lengths)
         print("[=] Subgraphs (connected components) = %s" % connected_component_count)
-        print("[=] Subgraph lengths = %s" % chromosome_lengths)
+        print("[=] Subgraph lengths = %s" % cc_lengths)
         print("[=] ====================================")
-        
+
+    def taxon_colinearity(self):
+        """
+        for a syngraph
+            - extract taxon graphs
+            - do pairwise comparisons between taxon graphs
+            - print matrix of median colinear tract lengths
+        """
+        taxon_graphs = {}
+        taxon_colinearity_dict = collections.defaultdict(dict)
+        for taxon in self.graph['taxa']:
+            taxon_graphs[taxon] = self.get_taxon_syngraph(taxon=taxon)
+        for taxon_A in taxon_graphs:
+            for taxon_B in taxon_graphs:
+                    colinear_tract_lengths = []
+                    for x in nx.connected_components(nx.intersection(taxon_graphs[taxon_A], taxon_graphs[taxon_B])):
+                        colinear_tract_lengths.append(len(x))
+                    colinear_tract_lengths.sort()
+                    taxon_colinearity_dict[taxon_A][taxon_B] = statistics.mean(colinear_tract_lengths)
+        df = pd.DataFrame.from_dict(taxon_colinearity_dict)
+        print(df.round(decimals=3))
+       
     def plot(self, outprefix, cmap='Set2', as_multigraph=True):
         taxon_count = len(self.graph['taxa'])
         colour_by_taxon = get_hex_colours_by_taxon(self.graph['taxa'], cmap=cmap)
