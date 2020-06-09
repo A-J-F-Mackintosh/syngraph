@@ -12,13 +12,18 @@ import statistics
 
 from operator import attrgetter
 import pandas as pd
-
+import matplotlib.pyplot as plt
+import numpy as np
 '''
 [To Do]
 - Dom:
     - orthofinder parsing has to be implemented
     - write LG plotting function, restructure plotting in general (legends!)
+    - sausage-plots (gene order) for syngraphs    
     - all other trello things
+    - reconstructed Syngraphs are actually lists-of-lists (LoLs) of nodes ... maybe we should make reconstruction/etc work with LoL's 
+    - Lists of lists/sets 
+
 
 - Alex:
     - test for consistency of taxon-names in tree/filenames in parameterObj
@@ -228,6 +233,14 @@ def reconstruct_syngraphs_by_tree_node(syngraph, tree, algorithm='fitch'):
             syngraph_by_tree_node[tree_node].show_recon_metrics(True, tree_node)
             #syngraph_by_tree_node[tree_node].plot(outprefix="node_%s" % tree_node)
     return syngraph_by_tree_node
+
+def plot_histogram(x, out_f):
+    fig, ax = plt.subplots(figsize=(14, 5))
+    hist, bins = np.histogram(x, bins=50)
+    width = 0.7 * (bins[1] - bins[0])
+    center = (bins[:-1] + bins[1:]) / 2
+    ax.bar(center, hist, align='center', width=width)
+    fig.savefig('%s.png' % out_f, format="png")
 
 def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
     '''
@@ -455,11 +468,13 @@ class Syngraph(nx.Graph):
             taxon_graphs[taxon] = self.get_taxon_syngraph(taxon=taxon)
         for taxon_A in taxon_graphs:
             for taxon_B in taxon_graphs:
-                    colinear_tract_lengths = []
-                    for x in nx.connected_components(nx.intersection(taxon_graphs[taxon_A], taxon_graphs[taxon_B])):
-                        colinear_tract_lengths.append(len(x))
-                    colinear_tract_lengths.sort()
-                    taxon_colinearity_dict[taxon_A][taxon_B] = statistics.mean(colinear_tract_lengths)
+                colinear_tract_lengths = []
+                for x in nx.connected_components(nx.intersection(taxon_graphs[taxon_A], taxon_graphs[taxon_B])):
+                    colinear_tract_lengths.append(len(x))
+                colinear_tract_lengths.sort()
+                taxon_colinearity_dict[taxon_A][taxon_B] = statistics.mean(colinear_tract_lengths)
+                out_f = "%s_vs_%s.png" % (taxon_A, taxon_B)
+                plot_histogram(colinear_tract_lengths, out_f)
         df = pd.DataFrame.from_dict(taxon_colinearity_dict)
         print(df.round(decimals=3))
        
