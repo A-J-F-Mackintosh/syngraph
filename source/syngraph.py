@@ -34,49 +34,6 @@ import numpy as np
             - basis for event detection (?)
 '''
 
-def cliques2chromosomes(cliques):
-    """
-    finds the largest cliques that are non-overlapping, i.e. chromosomes
-        - sort cliques by size
-        - add largest clique to chromosomes
-        - if a clique overlaps a chromosome then do not add
-        - if a clique overlaps a larger clique then do not add
-    """
-    chromosomes = []
-    cliques.sort(key=len, reverse=True)
-    for clique in cliques:
-        safe = True
-        if len(chromosomes) == 0:
-            chromosomes.append(clique)
-        else:
-            for chromosome in chromosomes:
-                if len(set(chromosome).intersection(set(clique))) > 0:
-                    safe = False
-            if safe == True:
-                for another_clique in cliques:
-                    if len(set(another_clique).intersection(set(clique))) > 0 and len(another_clique) > len(clique):
-                        safe = False
-                if safe == True:
-                    chromosomes.append(clique)
-    ######################################## mop up ######
-    """
-    for clique in cliques:
-        in_chromosomes = False
-        for chromosome in chromosomes:
-            if clique == chromosome:
-                in_chromosomes = True
-        if in_chromosomes == False:
-            overlaps = []
-            for chromosome in chromosomes:
-                if len(set(clique).intersection(set(chromosome))) > 0:
-                    overlaps.append(len(set(clique).intersection(set(chromosome))))
-            if len(overlaps) == 1:
-                for chromosome in chromosomes:
-                    if len(set(clique).intersection(set(chromosome))) > 0:
-                        chromosome += set(clique).difference(set(chromosome))
-    """
-    ###### don't understand behavoir yet ##################
-    return chromosomes
 
 def load_markerObjs(parameterObj):
     '''
@@ -243,35 +200,153 @@ def plot_histogram(x, out_f):
     fig.savefig('%s.png' % out_f, format="png")
 
 def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
+
     '''
     - input: syngraph, tree
-    - output: for each tree node, a graph where edges represent coocurence of two markers on a chromosome
+    - output: for each tree node, nodes assigned to LGs
     ''' 
-    edges_by_tree_node = collections.defaultdict(list)
-    coocurence_by_taxon_by_marker_set = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_markers --> taxon --> True/False
-    count = 0 
+    # calculate fixed syteny blocks for entire dataset
+    FSBlocks = [] # list of lists
+    for graph_node_id in syngraph.nodes():
+        if len(FSBlocks) == 0:
+            FSBlocks.append([graph_node_id])
+        else:
+            match = False
+            for Block in FSBlocks:
+                if syngraph.nodes[graph_node_id]['seqs_by_taxon'] == syngraph.nodes[Block[0]]['seqs_by_taxon']:
+                    Block.append(graph_node_id)
+                    match = True
+            if match == False:
+                FSBlocks.append([graph_node_id])
+    FSBlocks.sort(reverse=True, key=len)
+    # make an ID dict
+    FSBlock_IDs = {} # dict with a ID key for each FSBlock
+    ID = 0
+    for Block in FSBlocks:
+        ID += 1
+        FSBlock_IDs[ID] = Block
+    Total_IDs = ID
+    # calculate coocurence matrix for each taxon
+    coocurence_by_taxon_by_FSBlock_ID = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_FSBlocks --> taxon --> True/False
     if algorithm == 'fitch':
+        edges_by_tree_node = collections.defaultdict(list)
         print("[+] Collecting coocurence data from taxa")
-        for taxon in tqdm(syngraph.graph['taxa'], total=len(syngraph.graph['taxa']), desc="[%] ", ncols=100):
-            for seq_id, syntenic_markers in syngraph.graph['marker_ids_by_seq_id_by_taxon'][taxon].items():
-                for marker_set in itertools.combinations(syntenic_markers, 2):
-                    count += 1
-                    coocurence_by_taxon_by_marker_set[frozenset(marker_set)][taxon] = {True}
+        for taxon in syngraph.graph['taxa']:
+            for ID_comparison in itertools.combinations(range(1, Total_IDs+1), 2):
+                a_graph_node = FSBlock_IDs[ID_comparison[0]][0]
+                another_graph_node = FSBlock_IDs[ID_comparison[1]][0]
+                if syngraph.nodes[a_graph_node]['seqs_by_taxon'][taxon] == syngraph.nodes[another_graph_node]['seqs_by_taxon'][taxon]:
+                    coocurence_by_taxon_by_FSBlock_ID[frozenset(ID_comparison)][taxon] = {True}
+        # reconstruct coocurence matrix for internal nodes
         print("[+] Estimating coocurence data for ancestral genomes")
-        for marker_set in tqdm(coocurence_by_taxon_by_marker_set, total=len(coocurence_by_taxon_by_marker_set), desc="[%] ", ncols=100):
-            coocurence_by_taxon_by_marker_set[marker_set] = fitch(coocurence_by_taxon_by_marker_set[marker_set], 1, tree)
-            # coocurence_by_taxon_by_marker_set is now a nested dict that tells you for a given pair of markers and an internal node
-            # whether the two markers are syntenic
-            u, v = tuple(marker_set)
-            for taxon, coocurence in coocurence_by_taxon_by_marker_set[marker_set].items():
-                if coocurence != {False}:
-                    edges_by_tree_node[taxon].append((u, v, {'taxa': taxon}))
-        LG_by_tree_node = {}
+        for ID_comparison in coocurence_by_taxon_by_FSBlock_ID:
+            coocurence_by_taxon_by_FSBlock_ID[ID_comparison] = fitch(coocurence_by_taxon_by_FSBlock_ID[ID_comparison], 1, tree)
+            u, v = tuple(ID_comparison)
+            for tree_node, coocurence in coocurence_by_taxon_by_FSBlock_ID[ID_comparison].items():
+                if coocurence == {True}:
+                    edges_by_tree_node[tree_node].append((u, v, {'taxa': tree_node}))
+        # construct a graph where edges represent coocurence
+        print("[+] Building coocurence graphs")
+        C_by_tree_node = {}
         for tree_node, edges in edges_by_tree_node.items():
-            LG_by_tree_node[tree_node] = Syngraph()
-            LG_by_tree_node[tree_node].from_edges(edges, taxa=set(tree_node))
-            #LG_by_tree_node[tree_node].plot(outprefix="LG_node_%s" % tree_node)
-            LG_by_tree_node[tree_node].show_recon_metrics(False, "LG_"+tree_node)
+            C_by_tree_node[tree_node] = Syngraph()
+            C_by_tree_node[tree_node].from_edges(edges, taxa=set(tree_node))
+            # add FSBlocks that connect to nothing as island nodes
+            for graph_node_id in range(1, Total_IDs+1):
+                if graph_node_id not in C_by_tree_node[tree_node].nodes():
+                    C_by_tree_node[tree_node].add_node(graph_node_id)
+    # apply heuristic algorithm for pruning out LGs from C
+    print("[+] Building linkage group graphs")
+    LG_by_tree_node = {}
+    for tree_node in C_by_tree_node:
+        LG_by_tree_node[tree_node] = nx.DiGraph()
+        # iterate over nodes in C graph, make a directed edge for each node's greatest size connection
+        # edges are only made from a smaller to a greater sized node, or between equally sized nodes
+        # if there is a tie in size, then multiple edges will be made
+        for graph_node_id in C_by_tree_node[tree_node]:
+            neighbours = list(C_by_tree_node[tree_node].neighbors(graph_node_id))
+            biggest_neighbour = []
+            if len(neighbours) > 0:
+                for neighbour in neighbours:
+                    if len(FSBlock_IDs[neighbour]) >= len(FSBlock_IDs[graph_node_id]):
+                        if len(biggest_neighbour) == 0:
+                            biggest_neighbour = [neighbour]
+                        else:
+                            if len(FSBlock_IDs[neighbour]) == len(FSBlock_IDs[biggest_neighbour[0]]):
+                                biggest_neighbour.append(neighbour)
+                            elif len(FSBlock_IDs[neighbour]) > len(FSBlock_IDs[biggest_neighbour[0]]):
+                                biggest_neighbour = [neighbour]
+                if len(biggest_neighbour) > 0:
+                    for big_neighbour in biggest_neighbour:
+                        LG_by_tree_node[tree_node].add_edge(graph_node_id, big_neighbour)
+                else:
+                    LG_by_tree_node[tree_node].add_node(graph_node_id)
+            else:
+                LG_by_tree_node[tree_node].add_node(graph_node_id)
+        # use destinations in the graph to assign nodes to LGs
+        # a destination is either a node with no successors/neighbors of greater size
+        LGs = {}
+        LGs[frozenset(['unassignables'])] = []
+        destinations = []
+        # find destinations
+        for ID in range(1, Total_IDs+1):
+            is_destination = True
+            for descendant in nx.descendants(LG_by_tree_node[tree_node], ID):
+                if len(FSBlock_IDs[descendant]) > len(FSBlock_IDs[ID]):
+                    is_destination = False
+            if is_destination == True:
+                if len(destinations) == 0:
+                    destinations.append([ID])
+                else:
+                    in_cycle = False
+                    for descendant in nx.descendants(LG_by_tree_node[tree_node], ID):
+                        for destination in destinations:
+                            if descendant in destination:
+                                destination.append(ID)
+                                in_cycle = True
+                    if in_cycle == False:
+                        destinations.append([ID])
+        for destination in destinations:
+            destination = frozenset(destination)
+            LGs[destination] = []
+        # destinations (terminals and cycles) have now been defined
+        # loop through IDs to find their destination
+        # if they are a destination then assign them to that LG
+        # if they have 1 destination then they should be assigned to that destination's LG
+        # if they have >1 destinations then they cannot be assigned
+        for ID in range(1, Total_IDs+1):
+            is_destination = False
+            for destination in LGs:
+                if ID in destination:
+                    LGs[destination].append(ID)
+                    is_destination = True
+            if is_destination == False:
+                descendants = nx.descendants(LG_by_tree_node[tree_node], ID)
+                destination_of_ID = set()
+                for descendant in descendants:
+                    for destination in LGs:
+                        if descendant in destination:
+                            destination_of_ID.add(destination)
+                if len(destination_of_ID) == 1:
+                    for dest in destination_of_ID:
+                        LGs[dest].append(ID)
+                else:
+                    LGs[frozenset(['unassignables'])].append(ID)
+        total_nodes = 0
+        total_LGs = -1
+        LG_lengths = []
+        total_unassigned = 0
+        for LG in LGs:
+            LG_nodes = 0
+            for ID in LGs[LG]:
+                total_nodes += len(FSBlock_IDs[ID])
+                LG_nodes += len(FSBlock_IDs[ID])
+            total_LGs += 1
+            LG_lengths.append(LG_nodes)
+            if LG == frozenset(['unassignables']):
+                total_unassigned = LG_nodes
+        LG_lengths.sort(reverse=True)
+        print(tree_node, total_nodes, total_LGs, total_unassigned, LG_lengths)
 
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
@@ -437,25 +512,15 @@ class Syngraph(nx.Graph):
                     unresolved += edges_per_node[key]
                 else:
                     resolved += edges_per_node[key]
-        else:
-            cliques = list(nx.find_cliques(self))
-            chromosomes = cliques2chromosomes(cliques)
-            chromosome_lengths = []
-            for chromosome in chromosomes:
-                chromosome_lengths.append(len(chromosome))
-            chromosome_lengths.sort()
         print("[=] ====================================")
         print(name)
         if gene_order == True:
             print("[=] Resolved edges = %s" % (resolved / (resolved + unresolved)))
-        else:
-            print("[=] Chromosomes = %s" % len(chromosomes))
-            print("[=] Chromosome lengths = %s" % chromosome_lengths)
         print("[=] Subgraphs (connected components) = %s" % connected_component_count)
         print("[=] Subgraph lengths = %s" % cc_lengths)
         print("[=] ====================================")
 
-    def taxon_colinearity(self):
+    def taxon_jaccard(self):
         """
         for a syngraph
             - extract taxon graphs
@@ -463,19 +528,16 @@ class Syngraph(nx.Graph):
             - print matrix of median colinear tract lengths
         """
         taxon_graphs = {}
-        taxon_colinearity_dict = collections.defaultdict(dict)
+        taxon_jaccard = collections.defaultdict(dict)
         for taxon in self.graph['taxa']:
             taxon_graphs[taxon] = self.get_taxon_syngraph(taxon=taxon)
         for taxon_A in taxon_graphs:
             for taxon_B in taxon_graphs:
-                colinear_tract_lengths = []
-                for x in nx.connected_components(nx.intersection(taxon_graphs[taxon_A], taxon_graphs[taxon_B])):
-                    colinear_tract_lengths.append(len(x))
-                colinear_tract_lengths.sort()
-                taxon_colinearity_dict[taxon_A][taxon_B] = statistics.mean(colinear_tract_lengths)
-                out_f = "%s_vs_%s.png" % (taxon_A, taxon_B)
-                plot_histogram(colinear_tract_lengths, out_f)
-        df = pd.DataFrame.from_dict(taxon_colinearity_dict)
+                intersection_L = len(set(taxon_graphs[taxon_A].edges()).intersection(set(taxon_graphs[taxon_B].edges())))
+                union_L = len(set(taxon_graphs[taxon_A].edges()).union(set(taxon_graphs[taxon_B].edges())))
+                jaccard = intersection_L / union_L
+                taxon_jaccard[taxon_A][taxon_B] = jaccard
+        df = pd.DataFrame.from_dict(taxon_jaccard)
         print(df.round(decimals=3))
        
     def plot(self, outprefix, cmap='Set2', as_multigraph=True):

@@ -30,11 +30,6 @@ class ParameterObj():
                 node.name = "n%s" % idx
         return tree
 
-    def _get_mrca(self, taxa_string):
-        if not "," in taxa_string:
-            sys.exit("[X] Please specify node as comma-delimited list of taxa, e.g: A,B,C (for MRCA-node of taxa A,B,C)")
-        return self.tree.get_common_ancestor(taxa_string.split(",")) # ete3.coretype.tree.TreeNode
-
     def _get_path(self, infile):
         path = pathlib.Path(infile).resolve()
         if not path.exists():
@@ -54,10 +49,8 @@ def main(run_params):
         print("[+] Show Syngraph metrics ...")
         syngraph.show_metrics()
         print("[+] Reconstructing syngraphs and linkage groups at internal nodes of the following tree:\n%s" % (parameterObj.tree.get_ascii(show_internal=True)))
-        reconstructed_syngraphs_by_tree_node = sg.reconstruct_syngraphs_by_tree_node(syngraph, parameterObj.tree)
-        # have not tested further ...
+        #reconstructed_syngraphs_by_tree_node = sg.reconstruct_syngraphs_by_tree_node(syngraph, parameterObj.tree)
         reconstructed_linkage_groups = sg.reconstruct_linkage_groups_for_each_tree_node(syngraph, parameterObj.tree, algorithm='fitch')
-        # sg.show_reconstructed_metrics(reconstructed_linkage_groups, parent_syngraph=syngraph)
         print("[+] Save Syngraph to file ...")
         #graph_file = reconstructed_syngraph.save(parameterObj, check_consistency=True)
         #print("[+] Saved Syngraph in %r" % graph_file)
