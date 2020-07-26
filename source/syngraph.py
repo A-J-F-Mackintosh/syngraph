@@ -9,7 +9,6 @@ import collections
 pd.set_option('display.max_rows', None)
 import functools
 import statistics
-
 from operator import attrgetter
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -199,154 +198,168 @@ def plot_histogram(x, out_f):
     ax.bar(center, hist, align='center', width=width)
     fig.savefig('%s.png' % out_f, format="png")
 
-def reconstruct_linkage_groups_for_each_tree_node(syngraph, tree, algorithm='fitch'):
+def find_LinkedMarkerSets(syngraph):
+    '''
+    input: syngraph
+    output: linked marker sets
+    '''
+    LinkedMarkerSets = [] # list of lists
+    for graph_node_id in syngraph.nodes():
+        if len(LinkedMarkerSets) == 0:
+            LinkedMarkerSets.append([graph_node_id])
+        else:
+            match = False
+            for LMS in LinkedMarkerSets:
+                if syngraph.nodes[graph_node_id]['seqs_by_taxon'] == syngraph.nodes[LMS[0]]['seqs_by_taxon']:
+                    LMS.append(graph_node_id)
+                    match = True
+            if match == False:
+                LinkedMarkerSets.append([graph_node_id])
+    LinkedMarkerSets.sort(reverse=True, key=len)
+    # make an ID dict
+    LinkedMarkerSet_IDs = {} # dict with a ID key for each FSBlock
+    ID = 0
+    for LMS in LinkedMarkerSets:
+        ID += 1
+        LinkedMarkerSet_IDs[ID] = LMS
+    Total_IDs = ID
+    print("[=] Found {} linked marker sets".format(Total_IDs))
+    print("[=] Largest linked marker set has a length of {}".format(len(LinkedMarkerSets[0])))
+    print("[=] Smallest linked marker set has a length of {}".format(len(LinkedMarkerSets[-1])))
+    return LinkedMarkerSets, LinkedMarkerSet_IDs
+
+
+def reconstruct_linkage_groups_for_each_tree_node(syngraph, linked_marker_sets, linked_marker_set_IDs, tree, algorithm='fitch'):
 
     '''
     - input: syngraph, tree
     - output: for each tree node, nodes assigned to LGs
     ''' 
-    # calculate fixed syteny blocks for entire dataset
-    FSBlocks = [] # list of lists
-    for graph_node_id in syngraph.nodes():
-        if len(FSBlocks) == 0:
-            FSBlocks.append([graph_node_id])
-        else:
-            match = False
-            for Block in FSBlocks:
-                if syngraph.nodes[graph_node_id]['seqs_by_taxon'] == syngraph.nodes[Block[0]]['seqs_by_taxon']:
-                    Block.append(graph_node_id)
-                    match = True
-            if match == False:
-                FSBlocks.append([graph_node_id])
-    FSBlocks.sort(reverse=True, key=len)
-    # make an ID dict
-    FSBlock_IDs = {} # dict with a ID key for each FSBlock
-    ID = 0
-    for Block in FSBlocks:
-        ID += 1
-        FSBlock_IDs[ID] = Block
-    Total_IDs = ID
-    # calculate coocurence matrix for each taxon
-    coocurence_by_taxon_by_FSBlock_ID = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_FSBlocks --> taxon --> True/False
+    LG_store = collections.defaultdict(lambda: collections.defaultdict(dict)) # put inferred LGs in here later
+    # calculate coocurence matrix for each taxon and produce a graph of the matrix, a C_graph
+    coocurence_by_taxon_by_LMS_ID = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_LMS --> taxon --> True/False
     if algorithm == 'fitch':
         edges_by_tree_node = collections.defaultdict(list)
         print("[+] Collecting coocurence data from taxa")
         for taxon in syngraph.graph['taxa']:
-            for ID_comparison in itertools.combinations(range(1, Total_IDs+1), 2):
-                a_graph_node = FSBlock_IDs[ID_comparison[0]][0]
-                another_graph_node = FSBlock_IDs[ID_comparison[1]][0]
+            for ID_comparison in itertools.combinations(range(1, (len(linked_marker_sets)+1)), 2):
+                a_graph_node = linked_marker_set_IDs[ID_comparison[0]][0]
+                another_graph_node = linked_marker_set_IDs[ID_comparison[1]][0]
                 if syngraph.nodes[a_graph_node]['seqs_by_taxon'][taxon] == syngraph.nodes[another_graph_node]['seqs_by_taxon'][taxon]:
-                    coocurence_by_taxon_by_FSBlock_ID[frozenset(ID_comparison)][taxon] = {True}
+                    coocurence_by_taxon_by_LMS_ID[frozenset(ID_comparison)][taxon] = {True}
         # reconstruct coocurence matrix for internal nodes
         print("[+] Estimating coocurence data for ancestral genomes")
-        for ID_comparison in coocurence_by_taxon_by_FSBlock_ID:
-            coocurence_by_taxon_by_FSBlock_ID[ID_comparison] = fitch(coocurence_by_taxon_by_FSBlock_ID[ID_comparison], 1, tree)
+        for ID_comparison in coocurence_by_taxon_by_LMS_ID:
+            coocurence_by_taxon_by_LMS_ID[ID_comparison] = fitch(coocurence_by_taxon_by_LMS_ID[ID_comparison], 1, tree)
             u, v = tuple(ID_comparison)
-            for tree_node, coocurence in coocurence_by_taxon_by_FSBlock_ID[ID_comparison].items():
+            for tree_node, coocurence in coocurence_by_taxon_by_LMS_ID[ID_comparison].items():
                 if coocurence == {True}:
                     edges_by_tree_node[tree_node].append((u, v, {'taxa': tree_node}))
         # construct a graph where edges represent coocurence
         print("[+] Building coocurence graphs")
-        C_by_tree_node = {}
+        C_graphs_by_tree_node = {}
         for tree_node, edges in edges_by_tree_node.items():
-            C_by_tree_node[tree_node] = Syngraph()
-            C_by_tree_node[tree_node].from_edges(edges, taxa=set(tree_node))
-            # add FSBlocks that connect to nothing as island nodes
-            for graph_node_id in range(1, Total_IDs+1):
-                if graph_node_id not in C_by_tree_node[tree_node].nodes():
-                    C_by_tree_node[tree_node].add_node(graph_node_id)
+            C_graphs_by_tree_node[tree_node] = Syngraph()
+            C_graphs_by_tree_node[tree_node].from_edges(edges, taxa=set(tree_node))
+            # add LMS that connect to nothing as island nodes
+            for graph_node_id in range(1, len(linked_marker_sets)+1):
+                if graph_node_id not in C_graphs_by_tree_node[tree_node].nodes():
+                    C_graphs_by_tree_node[tree_node].add_node(graph_node_id)
     # apply heuristic algorithm for pruning out LGs from C
     print("[+] Building linkage group graphs")
-    LG_by_tree_node = {}
-    for tree_node in C_by_tree_node:
-        LG_by_tree_node[tree_node] = nx.DiGraph()
+    LG_graphs_by_tree_node = {}
+    for tree_node in C_graphs_by_tree_node:
+        LG_graphs_by_tree_node[tree_node] = nx.DiGraph()
         # iterate over nodes in C graph, make a directed edge for each node's greatest size connection
         # edges are only made from a smaller to a greater sized node, or between equally sized nodes
         # if there is a tie in size, then multiple edges will be made
-        for graph_node_id in C_by_tree_node[tree_node]:
-            neighbours = list(C_by_tree_node[tree_node].neighbors(graph_node_id))
+        for graph_node_id in C_graphs_by_tree_node[tree_node]:
+            neighbours = list(C_graphs_by_tree_node[tree_node].neighbors(graph_node_id))
             biggest_neighbour = []
             if len(neighbours) > 0:
                 for neighbour in neighbours:
-                    if len(FSBlock_IDs[neighbour]) >= len(FSBlock_IDs[graph_node_id]):
+                    if len(linked_marker_set_IDs[neighbour]) >= len(linked_marker_set_IDs[graph_node_id]):
                         if len(biggest_neighbour) == 0:
                             biggest_neighbour = [neighbour]
                         else:
-                            if len(FSBlock_IDs[neighbour]) == len(FSBlock_IDs[biggest_neighbour[0]]):
+                            if len(linked_marker_set_IDs[neighbour]) == len(linked_marker_set_IDs[biggest_neighbour[0]]):
                                 biggest_neighbour.append(neighbour)
-                            elif len(FSBlock_IDs[neighbour]) > len(FSBlock_IDs[biggest_neighbour[0]]):
+                            elif len(linked_marker_set_IDs[neighbour]) > len(linked_marker_set_IDs[biggest_neighbour[0]]):
                                 biggest_neighbour = [neighbour]
                 if len(biggest_neighbour) > 0:
                     for big_neighbour in biggest_neighbour:
-                        LG_by_tree_node[tree_node].add_edge(graph_node_id, big_neighbour)
+                        LG_graphs_by_tree_node[tree_node].add_edge(graph_node_id, big_neighbour)
                 else:
-                    LG_by_tree_node[tree_node].add_node(graph_node_id)
+                    LG_graphs_by_tree_node[tree_node].add_node(graph_node_id)
             else:
-                LG_by_tree_node[tree_node].add_node(graph_node_id)
+                LG_graphs_by_tree_node[tree_node].add_node(graph_node_id)
         # use destinations in the graph to assign nodes to LGs
         # a destination is either a node with no successors/neighbors of greater size
-        LGs = {}
-        LGs[frozenset(['unassignables'])] = []
+        LG_store[tree_node][frozenset(['unassignables'])] = []
         destinations = []
         # find destinations
-        for ID in range(1, Total_IDs+1):
-            is_destination = True
-            for descendant in nx.descendants(LG_by_tree_node[tree_node], ID):
-                if len(FSBlock_IDs[descendant]) > len(FSBlock_IDs[ID]):
-                    is_destination = False
-            if is_destination == True:
-                if len(destinations) == 0:
-                    destinations.append([ID])
-                else:
-                    in_cycle = False
-                    for descendant in nx.descendants(LG_by_tree_node[tree_node], ID):
-                        for destination in destinations:
-                            if descendant in destination:
-                                destination.append(ID)
-                                in_cycle = True
-                    if in_cycle == False:
+        for ID in range(1, len(linked_marker_sets)+1):
+            if len(linked_marker_set_IDs[ID]) > 1: # here make a rule that destinations must be 
+                is_destination = True
+                for descendant in nx.descendants(LG_graphs_by_tree_node[tree_node], ID):
+                    if len(linked_marker_set_IDs[descendant]) > len(linked_marker_set_IDs[ID]):
+                        is_destination = False
+                if is_destination == True:
+                    if len(destinations) == 0:
                         destinations.append([ID])
+                    else:
+                        in_cycle = False
+                        for descendant in nx.descendants(LG_graphs_by_tree_node[tree_node], ID):
+                            for destination in destinations:
+                                if descendant in destination:
+                                    destination.append(ID)
+                                    in_cycle = True
+                        if in_cycle == False:
+                            destinations.append([ID])
         for destination in destinations:
-            destination = frozenset(destination)
-            LGs[destination] = []
+            LG_store[tree_node][frozenset(destination)] = []
         # destinations (terminals and cycles) have now been defined
         # loop through IDs to find their destination
         # if they are a destination then assign them to that LG
         # if they have 1 destination then they should be assigned to that destination's LG
         # if they have >1 destinations then they cannot be assigned
-        for ID in range(1, Total_IDs+1):
+        for ID in range(1, len(linked_marker_sets)+1):
             is_destination = False
-            for destination in LGs:
+            for destination in LG_store[tree_node]:
                 if ID in destination:
-                    LGs[destination].append(ID)
+                    LG_store[tree_node][destination].append(ID)
                     is_destination = True
             if is_destination == False:
-                descendants = nx.descendants(LG_by_tree_node[tree_node], ID)
+                descendants = nx.descendants(LG_graphs_by_tree_node[tree_node], ID)
                 destination_of_ID = set()
                 for descendant in descendants:
-                    for destination in LGs:
+                    for destination in LG_store[tree_node]:
                         if descendant in destination:
                             destination_of_ID.add(destination)
                 if len(destination_of_ID) == 1:
                     for dest in destination_of_ID:
-                        LGs[dest].append(ID)
+                        LG_store[tree_node][dest].append(ID)
                 else:
-                    LGs[frozenset(['unassignables'])].append(ID)
+                    LG_store[tree_node][frozenset(['unassignables'])].append(ID)
+        # all done
+        # now print some metrics and also store the LGs somewhere
+        # return the stored LGs
         total_nodes = 0
         total_LGs = -1
         LG_lengths = []
         total_unassigned = 0
-        for LG in LGs:
+        for LG in LG_store[tree_node]:
             LG_nodes = 0
-            for ID in LGs[LG]:
-                total_nodes += len(FSBlock_IDs[ID])
-                LG_nodes += len(FSBlock_IDs[ID])
+            for ID in LG_store[tree_node][LG]:
+                total_nodes += len(linked_marker_set_IDs[ID])
+                LG_nodes += len(linked_marker_set_IDs[ID])
             total_LGs += 1
             LG_lengths.append(LG_nodes)
             if LG == frozenset(['unassignables']):
                 total_unassigned = LG_nodes
         LG_lengths.sort(reverse=True)
         print(tree_node, total_nodes, total_LGs, total_unassigned, LG_lengths)
+    return LG_store
 
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
