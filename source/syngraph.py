@@ -297,7 +297,6 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, linked_marker_sets, 
         # a destination is either a node with no successors/neighbors of greater size
         LG_store[tree_node][frozenset(['unassignables'])] = []
         destinations = []
-        # find destinations
         for ID in range(1, len(linked_marker_sets)+1):
             if len(linked_marker_set_IDs[ID]) > 1: # here make a rule that destinations must be 
                 is_destination = True
@@ -316,13 +315,13 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, linked_marker_sets, 
                                     in_cycle = True
                         if in_cycle == False:
                             destinations.append([ID])
-        for destination in destinations:
-            LG_store[tree_node][frozenset(destination)] = []
         # destinations (terminals and cycles) have now been defined
         # loop through IDs to find their destination
         # if they are a destination then assign them to that LG
         # if they have 1 destination then they should be assigned to that destination's LG
         # if they have >1 destinations then they cannot be assigned
+        for destination in destinations:
+            LG_store[tree_node][frozenset(destination)] = []
         for ID in range(1, len(linked_marker_sets)+1):
             is_destination = False
             for destination in LG_store[tree_node]:
@@ -341,25 +340,65 @@ def reconstruct_linkage_groups_for_each_tree_node(syngraph, linked_marker_sets, 
                         LG_store[tree_node][dest].append(ID)
                 else:
                     LG_store[tree_node][frozenset(['unassignables'])].append(ID)
-        # all done
-        # now print some metrics and also store the LGs somewhere
-        # return the stored LGs
-        total_nodes = 0
-        total_LGs = -1
-        LG_lengths = []
-        total_unassigned = 0
-        for LG in LG_store[tree_node]:
-            LG_nodes = 0
-            for ID in LG_store[tree_node][LG]:
-                total_nodes += len(linked_marker_set_IDs[ID])
-                LG_nodes += len(linked_marker_set_IDs[ID])
-            total_LGs += 1
-            LG_lengths.append(LG_nodes)
-            if LG == frozenset(['unassignables']):
-                total_unassigned = LG_nodes
-        LG_lengths.sort(reverse=True)
-        print(tree_node, total_nodes, total_LGs, total_unassigned, LG_lengths)
+    # all done, return the stored LGs
     return LG_store
+
+def analyse_chromosomal_units(syngraph, LG_store, linked_marker_set_IDs, mrca):
+    ''''
+    input : LG store, linked_marker_set_IDs, a target node for defining units
+    output : tsv for each species - chrom - which unit(s) they contain, plus information about units
+    '''
+    print("[+] Using the following internal node to define chromosomal units \n{}\n".format(mrca.get_ascii(show_internal=True)))
+    # extract units using specified mrca
+    chromosomal_units = {} # key is unit name, e.g. unit_1 ordered by size, value is list of markers
+    temp_units = {} # these will be stored here with the wrong names
+    temp_unit_names = 0
+    for LG in LG_store[mrca.name]:
+        if LG != frozenset(['unassignables']):
+            temp_unit_names += 1
+            temp_units[str(temp_unit_names)] = []
+            for ID in LG_store[mrca.name][LG]:
+                for marker in linked_marker_set_IDs[ID]:
+                    temp_units[str(temp_unit_names)].append(marker)
+    # now give names based on length and store in chromosomal_units
+    chromosomal_units_names = 0
+    for unit in sorted(temp_units, key=lambda unit: len(temp_units[unit]), reverse=True):
+        chromosomal_units_names += 1
+        chromosomal_units["unit_"+str(chromosomal_units_names)] = temp_units[unit]
+    print("[=] Estimated {} ancestral chromosome units".format(chromosomal_units_names))
+    print("[=] {} markers could not be assigned to any unit".format(len(LG_store[mrca.name][frozenset(['unassignables'])])))
+    # output units as a tsv
+    """
+    print("UNIT\tMARKER")
+    for unit in chromosomal_units:
+        for marker in chromosomal_units[unit]:
+            print("{}\t{}".format(unit, marker))
+    """
+    # now relate taxa chromosomes to ancestral units
+    print("[+] Calculating and then outputting how extant chromosomes relate to ancestral units\n")
+    for tree_node in LG_store:
+        if tree_node in syngraph.graph['taxa']:
+            temporary_results_dict = collections.defaultdict(lambda: collections.defaultdict(int))
+            for LG in LG_store[tree_node]:
+                for ID in LG_store[tree_node][LG]:
+                    for marker in linked_marker_set_IDs[ID]:
+                        for unit in chromosomal_units:
+                            if marker in chromosomal_units[unit]:
+                                #print("{}\t{}\t{}\t{}".format(tree_node, marker, syngraph.nodes[marker]['seqs_by_taxon'][tree_node], unit))
+                                taxon_chromo = syngraph.nodes[marker]['seqs_by_taxon'][tree_node]
+                                temporary_results_dict[taxon_chromo][unit] += 1
+            for chromo in sorted(temporary_results_dict):
+                results_string = "NA"
+                for unit in sorted(temporary_results_dict[chromo]):
+                    percent_found = round(((temporary_results_dict[chromo][unit] / len(chromosomal_units[unit])) * 100), 3)
+                    if results_string == "NA":
+                        results_string = str(percent_found) + "%_" + unit
+                    else:
+                        results_string = results_string + "\t" + str(percent_found) + "%_" + unit
+                print("{}\t{}\t{}".format(tree_node, chromo, results_string))
+
+
+
 
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}

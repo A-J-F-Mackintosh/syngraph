@@ -57,8 +57,10 @@ def main(run_params):
         syngraph.show_metrics()
         print("[+] Identifying LMS (linked marker sets) within the syngraph")
         LinkedMarkerSets, LinkedMarkerSet_IDs = sg.find_LinkedMarkerSets(syngraph)
-        print("[+] Reconstructing linkage groups at internal nodes of the following tree:\n%s" % (parameterObj.tree.get_ascii(show_internal=True)))
-        reconstructed_linkage_groups = sg.reconstruct_linkage_groups_for_each_tree_node(syngraph, LinkedMarkerSets, LinkedMarkerSet_IDs, parameterObj.tree, algorithm='fitch')
+        print("[+] Reconstructing linkage groups at internal nodes of the following tree:\n%s\n" % (parameterObj.tree.get_ascii(show_internal=True)))
+        LG_store = sg.reconstruct_linkage_groups_for_each_tree_node(syngraph, LinkedMarkerSets, LinkedMarkerSet_IDs, parameterObj.tree, algorithm='fitch')
+        print("[+] Etimating chromosomal units and variation")
+        sg.analyse_chromosomal_units(syngraph, LG_store, LinkedMarkerSet_IDs, parameterObj.mrca)
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
     except KeyboardInterrupt:
         sys.stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - main_time))
