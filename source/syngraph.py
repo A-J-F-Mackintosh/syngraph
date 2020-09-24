@@ -226,6 +226,8 @@ def find_LinkedMarkerSets(syngraph):
     print("[=] Found {} linked marker sets".format(Total_IDs))
     print("[=] Largest linked marker set has a length of {}".format(len(LinkedMarkerSets[0])))
     print("[=] Smallest linked marker set has a length of {}".format(len(LinkedMarkerSets[-1])))
+    for LMS in LinkedMarkerSets:
+        print(len(LMS))
     return LinkedMarkerSets, LinkedMarkerSet_IDs
 
 
@@ -367,14 +369,6 @@ def analyse_chromosomal_units(syngraph, LG_store, linked_marker_set_IDs, mrca):
         chromosomal_units["unit_"+str(chromosomal_units_names)] = temp_units[unit]
     print("[=] Estimated {} ancestral chromosome units".format(chromosomal_units_names))
     print("[=] {} markers could not be assigned to any unit".format(len(LG_store[mrca.name][frozenset(['unassignables'])])))
-    # output units as a tsv
-    """
-    print("UNIT\tMARKER")
-    for unit in chromosomal_units:
-        for marker in chromosomal_units[unit]:
-            print("{}\t{}".format(unit, marker))
-    """
-    # now relate taxa chromosomes to ancestral units
     print("[+] Calculating and then outputting how extant chromosomes relate to ancestral units\n")
     for tree_node in LG_store:
         if tree_node in syngraph.graph['taxa']:
@@ -398,11 +392,165 @@ def analyse_chromosomal_units(syngraph, LG_store, linked_marker_set_IDs, mrca):
                 print("{}\t{}\t{}".format(tree_node, chromo, results_string))
 
 
-
-
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
 
+
+#############################################################################################
+### below are functions for implementing fusion+fission models ############################
+#############################################################################################
+
+def compact_synteny(syngraph, ref_taxon, query_taxon, minimum, mode):
+    index2refchrom = {}
+    index = 1
+    querychrom2lists = collections.defaultdict(list)
+    querychrom2index = collections.defaultdict(set)
+    if mode == "LMS_syngraph":
+        for LMS in ref_taxon:
+            index2refchrom[index] = LMS
+            index += 1
+        refchrom2index = {value: key for key, value in index2refchrom.items()}
+        for graph_node_id in syngraph.nodes():
+            for LMS in ref_taxon:
+                if graph_node_id in ref_taxon[LMS]:
+                    querychrom2lists[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].append(refchrom2index[LMS])
+    elif mode == "syngraph_syngraph":
+        for graph_node_id in syngraph.nodes():
+            if not syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon] in index2refchrom.values():
+                index2refchrom[index] = syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon]
+                index += 1
+        refchrom2index = {value: key for key, value in index2refchrom.items()}
+        for graph_node_id in syngraph.nodes():
+            querychrom2lists[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].append(refchrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon]])
+    elif mode == "index_index":
+        for index_chrom in ref_taxon:
+            index2refchrom[index] = index_chrom
+            index += 1
+        refchrom2index = {frozenset(value): key for key, value in index2refchrom.items()}
+        for querychrom in query_taxon:
+            for index in query_taxon[querychrom]:
+                for refchrom in refchrom2index:
+                    if index in refchrom:
+                        querychrom2lists[querychrom].append(refchrom2index[refchrom])
+    if mode == "syngraph_syngraph":
+        for querychrom in querychrom2lists:
+            counts = collections.Counter(querychrom2lists[querychrom])
+            for index in counts:
+                if counts[index] >= minimum:
+                    querychrom2index[querychrom].add(index)
+    else:
+        for querychrom in querychrom2lists:
+            querychrom2index[querychrom] = set(querychrom2lists[querychrom])
+    return(querychrom2index)
+
+def ffsd(instance_of_synteny):
+    def check_for_fusions(instance_of_synteny, fusions_so_far):
+        fusions = fusions_so_far
+        new_fusions = 0
+        for combo in itertools.combinations(instance_of_synteny.keys(), 2):
+            if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
+                instance_of_synteny[combo[0]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
+                instance_of_synteny[combo[1]] = set()
+                fusions += 1
+                new_fusions += 1
+        if new_fusions > 0:
+            return check_for_fusions(instance_of_synteny, fusions)
+        else:
+            return(fusions)
+    def check_for_fissions(instance_of_synteny, fissions_so_far):
+        fissions = fissions_so_far
+        for querychrom in instance_of_synteny:
+            indices = len(instance_of_synteny[querychrom])
+            if indices > 1:
+                fissions += (indices - 1)
+        return(fissions)
+    total_fusions = check_for_fusions(instance_of_synteny, 0)
+    total_fissions = check_for_fissions(instance_of_synteny, 0)
+    #print("[=] Fusions = %s" % total_fusions)
+    #print("[=] Fissions = %s" % total_fissions)
+    return(total_fusions, total_fissions)
+
+def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
+    LinkedMarkerSets = collections.defaultdict(set)
+    for graph_node_id in syngraph.nodes():
+        triplet_seqs_by_taxon = set()
+        for taxon in ref_taxon, query_taxon, query2_taxon:
+            triplet_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
+        triplet_seqs_by_taxon = frozenset(list(triplet_seqs_by_taxon))
+        LinkedMarkerSets[triplet_seqs_by_taxon].add(graph_node_id)
+    Filtered_LinkedMarkerSets = {}
+    Filtered_LMS_count = 1
+    for LMS in LinkedMarkerSets:
+        if len(LinkedMarkerSets[LMS]) >= minimum:
+            Filtered_LinkedMarkerSets["LMS_" + str(Filtered_LMS_count)] = LinkedMarkerSets[LMS]
+            Filtered_LMS_count += 1
+    return(Filtered_LinkedMarkerSets)
+
+def generate_possible_medians(ios_ref, ios_query, ios_query2):
+    # generate connected components
+    # for each connected component generate all configurations
+    # median space is therefore the configurations of each connected component multiplied together
+    connected_components = []
+    for ios in ios_ref, ios_query, ios_query2:
+        for chrom in ios.values():
+            connected_components.append(chrom)
+    def generate_connected_components(connected_components):
+        another_iteration = False
+        for combo in itertools.combinations(range(0, len(connected_components)), 2):
+            if connected_components[combo[0]].intersection(connected_components[combo[1]]):
+                connected_components[combo[0]] = connected_components[combo[0]].union(connected_components[combo[1]])
+                connected_components[combo[1]] = set()
+                another_iteration = True
+        if another_iteration == True:
+            return(generate_connected_components(connected_components))
+        else:
+            connected_components = [component for component in connected_components if component != set()]
+            return(connected_components)
+    connected_components = generate_connected_components(connected_components)
+    possible_component_combos = collections.defaultdict(set)
+    for component in connected_components:
+        all_subsets = []
+        for i in range(1, len(component)+1):
+            for combo in itertools.combinations(component, i):
+                all_subsets.append(combo)
+        for i in range(1, len(component)+1):
+            for combo in itertools.combinations(all_subsets, i):
+                if sum([len(element) for element in combo]) == len(component):
+                    if len([index for element in combo for index in element]) == len(set([index for element in combo for index in element])):
+                        possible_component_combos[frozenset(component)].add(combo)
+    possible_median_genomes = []
+    for component_combo in itertools.product(*(possible_component_combos.values())):
+        a_possible_median_genome = []
+        for component in component_combo:
+            for index in component:
+                a_possible_median_genome.append(set(index))
+        possible_median_genomes.append(a_possible_median_genome)
+    return(possible_median_genomes)
+
+
+def median_genome(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
+    # get LMSs >= minimum
+    # LMSs represent a fissioned median genome
+    # given compact synteny of each extant genome, construct other medians
+    # for each median get the sum of ffsd, return the best one :)
+    LMSs = get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
+    print("[=] Generated {} LMSs".format(len(LMSs.keys())))
+    instance_of_synteny_ref = compact_synteny(syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
+    instance_of_synteny_query = compact_synteny(syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
+    instance_of_synteny_query2 = compact_synteny(syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
+    possible_medians = generate_possible_medians(instance_of_synteny_ref, instance_of_synteny_query, instance_of_synteny_query2)
+    print("[=] Generated {} possible median genomes".format(len(possible_medians)))
+    for possible_median in possible_medians:
+        total_observed_fusions = 0
+        total_observed_fissions = 0
+        for ios in instance_of_synteny_ref, instance_of_synteny_query, instance_of_synteny_query2:
+            observed_fusions, observed_fissions = ffsd(compact_synteny(syngraph, possible_median, ios, minimum, "index_index"))
+            total_observed_fusions += observed_fusions
+            total_observed_fissions += observed_fissions
+        print("[=] Fusions : {}, Fissions : {}".format(total_observed_fusions, total_observed_fissions))
+
+
+    
 
 #############################################################################################
 
@@ -520,26 +668,26 @@ class Syngraph(nx.Graph):
         node_total_count = nx.number_of_nodes(self)
         edge_total_count = nx.number_of_edges(self)
         connected_component_count = nx.number_connected_components(self)
-        taxa_per_edge = {}
-        edges_per_node = {}
-        for i in range(1, len(self.graph['taxa'])+1):
-            taxa_per_edge[i] = sum([1 for (_, __, taxa) in self.edges.data('taxa') if len(taxa) == i])
-        for j in range(1, (len(self.graph['taxa'])+1)*2):
-            edges_per_node[j] = 0
-        for graph_node_id in self.nodes:
-            neighbours = self.degree(graph_node_id)
-            edges_per_node[neighbours] += 1
+        # taxa_per_edge = {}
+        # edges_per_node = {}
+        # for i in range(1, len(self.graph['taxa'])+1):
+        #     taxa_per_edge[i] = sum([1 for (_, __, taxa) in self.edges.data('taxa') if len(taxa) == i])
+        # for j in range(1, (len(self.graph['taxa'])+1)*2):
+        #     edges_per_node[j] = 0
+        # for graph_node_id in self.nodes:
+        #     neighbours = self.degree(graph_node_id)
+        #     edges_per_node[neighbours] += 1
         print("[=] ====================================")
         print("[=] Taxa = %s" % taxon_count)
         print("[=] Nodes (Markers) = %s" % node_total_count)
-        print("[=] Edges (Adjacencies)") 
-        print("[=]   distinct = %s" % edge_total_count)
-        print("[=]   taxa per edge\tcount")
-        for key in taxa_per_edge:
-            print("[=]   {}\t{}".format(key, taxa_per_edge[key]))
-        print("[=]   edges per node\tcount")
-        for key in edges_per_node:
-            print("[=]   {}\t{}".format(key, edges_per_node[key]))
+        print("[=] Distinct Edges (Adjacencies) = %s" % edge_total_count) 
+        # print("[=]   distinct = %s" % edge_total_count)
+        # print("[=]   taxa per edge\tcount")
+        # for key in taxa_per_edge:
+        #     print("[=]   {}\t{}".format(key, taxa_per_edge[key]))
+        # print("[=]   edges per node\tcount")
+        # for key in edges_per_node:
+        #     print("[=]   {}\t{}".format(key, edges_per_node[key]))
         print("[=] Subgraphs (connected components) = %s" % connected_component_count)
         print("[=] ====================================")
 
@@ -577,7 +725,7 @@ class Syngraph(nx.Graph):
         for a syngraph
             - extract taxon graphs
             - do pairwise comparisons between taxon graphs
-            - print matrix of median colinear tract lengths
+            - print jaccard index of edges
         """
         taxon_graphs = {}
         taxon_jaccard = collections.defaultdict(dict)

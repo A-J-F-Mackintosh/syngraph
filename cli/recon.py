@@ -23,7 +23,7 @@ class ParameterObj():
         self.syngraph = self._get_path(args['--syngraph'])
         self.outprefix = args['--outprefix']
         self.tree = self._get_tree(args['--tree'])    # ete3.coretype.tree.TreeNode
-        self.units = self._get_path(args['--units']) 
+        self.units = self._get_path(args['--units'])
 
     def _get_tree(self, tree_f):
         tree = ete3.Tree(str(self._get_path(tree_f)))
