@@ -4,7 +4,7 @@ Usage: syngraph build -d <DIR> [-l <STR>] [-g <FILE>] [-m|-M] [-f|-F] [-s] [-o <
 
   [Options]
     -l, --label <STR>                           Type of input data to analyse (busco|ortho) [default: busco]
-    -g, --orthogroups <FILE>                    If '-l busco', provide Orthofinder Orthogroups.tsv file 
+    -g, --orthogroups <FILE>                    If '-l ortho', provide Orthofinder Orthogroups.tsv file 
     -d, --dir <DIR>                             Directory containing 
                                                     - BUSCO (v4.0.3+) TAXONNAME.*.full_table.tsv files, if '-l busco'
                                                     - BED files TAXONNAME.*.bed files (where TAXONNAME is in header of Orthogroups.tsv, if '-l ortho'

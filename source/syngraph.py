@@ -423,15 +423,15 @@ def compact_synteny(syngraph, ref_taxon, query_taxon, minimum, mode):
         for graph_node_id in syngraph.nodes():
             querychrom2lists[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].append(refchrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon]])
     elif mode == "index_index":
-        for index_chrom in ref_taxon:
-            index2refchrom[index] = index_chrom
+        for ref_chrom in ref_taxon:
+            index2refchrom[index] = ref_taxon[ref_chrom]
             index += 1
         refchrom2index = {frozenset(value): key for key, value in index2refchrom.items()}
         for querychrom in query_taxon:
-            for index in query_taxon[querychrom]:
+            for index in querychrom:
                 for refchrom in refchrom2index:
                     if index in refchrom:
-                        querychrom2lists[querychrom].append(refchrom2index[refchrom])
+                        querychrom2lists[frozenset(querychrom)].append(refchrom2index[refchrom])
     if mode == "syngraph_syngraph":
         for querychrom in querychrom2lists:
             counts = collections.Counter(querychrom2lists[querychrom])
@@ -466,8 +466,10 @@ def ffsd(instance_of_synteny):
         return(fissions)
     total_fusions = check_for_fusions(instance_of_synteny, 0)
     total_fissions = check_for_fissions(instance_of_synteny, 0)
-    #print("[=] Fusions = %s" % total_fusions)
-    #print("[=] Fissions = %s" % total_fissions)
+    # print("#############################")
+    # print("[=] Fusions = %s" % total_fusions)
+    # print("[=] Fissions = %s" % total_fissions)
+    # print("#############################")
     return(total_fusions, total_fissions)
 
 def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
@@ -535,19 +537,22 @@ def median_genome(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     # for each median get the sum of ffsd, return the best one :)
     LMSs = get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
     print("[=] Generated {} LMSs".format(len(LMSs.keys())))
-    instance_of_synteny_ref = compact_synteny(syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
-    instance_of_synteny_query = compact_synteny(syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
-    instance_of_synteny_query2 = compact_synteny(syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
-    possible_medians = generate_possible_medians(instance_of_synteny_ref, instance_of_synteny_query, instance_of_synteny_query2)
+    ios_ref = compact_synteny(syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
+    ios_query = compact_synteny(syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
+    ios_query2 = compact_synteny(syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
+    possible_medians = generate_possible_medians(ios_ref, ios_query, ios_query2)
     print("[=] Generated {} possible median genomes".format(len(possible_medians)))
+    best_median = float("inf")
     for possible_median in possible_medians:
         total_observed_fusions = 0
         total_observed_fissions = 0
-        for ios in instance_of_synteny_ref, instance_of_synteny_query, instance_of_synteny_query2:
-            observed_fusions, observed_fissions = ffsd(compact_synteny(syngraph, possible_median, ios, minimum, "index_index"))
+        for ios in ios_ref, ios_query, ios_query2:
+            observed_fusions, observed_fissions = ffsd(compact_synteny(syngraph, ios, possible_median, minimum, "index_index"))
             total_observed_fusions += observed_fusions
             total_observed_fissions += observed_fissions
-        print("[=] Fusions : {}, Fissions : {}".format(total_observed_fusions, total_observed_fissions))
+        if total_observed_fusions + total_observed_fissions <= best_median:
+            best_median = total_observed_fusions + total_observed_fissions
+            print("[=] Best median so far requires: Fusions : {}, Fissions : {}".format(total_observed_fusions, total_observed_fissions))
 
 
     

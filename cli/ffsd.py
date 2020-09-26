@@ -50,7 +50,9 @@ def main(run_params):
 
         if parameterObj.query2 == "None":
             instance_of_synteny = sg.compact_synteny(syngraph, parameterObj.reference, parameterObj.query, parameterObj.minimum, "syngraph_syngraph")
-            sg.ffsd(instance_of_synteny)
+            total_fusions, total_fissions = sg.ffsd(instance_of_synteny)
+            print("[=] Fusions = %s" % total_fusions)
+            print("[=] Fissions = %s" % total_fissions)
         else:
             sg.median_genome(syngraph, parameterObj.reference, parameterObj.query, parameterObj.query2, parameterObj.minimum)
 
