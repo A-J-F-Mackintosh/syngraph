@@ -31,17 +31,17 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
     ------------------------------------------------------------------------------
 ```
 
-# Build a syngraph
+## Build a syngraph
 ```
 syngraph build -d directory_of_tsv_files -o test
 ```
 
-# Calculate the fission-fusion distance between two genomes
+## Calculate the fission-fusion distance between two genomes
 ```
 syngraph ffsd -g test.pickle -r genus_speciesA -q genus_speciesB
 ```
 
-# Find the median genome for three genomes under the fission-fusion distance
+## Find the median genome for three genomes under the fission-fusion distance
 ```
 syngraph ffsd -g test.pickle -r genus_speciesA -q genus_speciesB -Q genus_speciesC
 ```
