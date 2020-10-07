@@ -13,6 +13,9 @@ from operator import attrgetter
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import random
+import copy
+
 '''
 [To Do]
 - Dom:
@@ -395,9 +398,10 @@ def analyse_chromosomal_units(syngraph, LG_store, linked_marker_set_IDs, mrca):
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
 
-
 #############################################################################################
-### below are functions for implementing fusion+fission models ############################
+################################################################################:)###########
+### below are functions for implementing fusion+fission models ##############################
+################################################################################:(###########
 #############################################################################################
 
 def compact_synteny(syngraph, ref_taxon, query_taxon, minimum, mode):
@@ -422,9 +426,9 @@ def compact_synteny(syngraph, ref_taxon, query_taxon, minimum, mode):
         refchrom2index = {value: key for key, value in index2refchrom.items()}
         for graph_node_id in syngraph.nodes():
             querychrom2lists[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].append(refchrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon]])
-    elif mode == "index_index":
+    elif mode == "index_index": # list of sets
         for ref_chrom in ref_taxon:
-            index2refchrom[index] = ref_taxon[ref_chrom]
+            index2refchrom[index] = ref_chrom
             index += 1
         refchrom2index = {frozenset(value): key for key, value in index2refchrom.items()}
         for querychrom in query_taxon:
@@ -466,10 +470,6 @@ def ffsd(instance_of_synteny):
         return(fissions)
     total_fusions = check_for_fusions(instance_of_synteny, 0)
     total_fissions = check_for_fissions(instance_of_synteny, 0)
-    # print("#############################")
-    # print("[=] Fusions = %s" % total_fusions)
-    # print("[=] Fissions = %s" % total_fissions)
-    # print("#############################")
     return(total_fusions, total_fissions)
 
 def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
@@ -488,71 +488,160 @@ def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
             Filtered_LMS_count += 1
     return(Filtered_LinkedMarkerSets)
 
-def generate_possible_medians(ios_ref, ios_query, ios_query2):
-    # generate connected components
-    # for each connected component generate all configurations
-    # median space is therefore the configurations of each connected component multiplied together
-    connected_components = []
-    for ios in ios_ref, ios_query, ios_query2:
-        for chrom in ios.values():
-            connected_components.append(chrom)
-    def generate_connected_components(connected_components):
-        another_iteration = False
-        for combo in itertools.combinations(range(0, len(connected_components)), 2):
-            if connected_components[combo[0]].intersection(connected_components[combo[1]]):
-                connected_components[combo[0]] = connected_components[combo[0]].union(connected_components[combo[1]])
-                connected_components[combo[1]] = set()
-                another_iteration = True
-        if another_iteration == True:
-            return(generate_connected_components(connected_components))
+def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, connected_components):
+    if iteration == 0:
+        for ios in ios_ref, ios_query, ios_query2:
+            for chrom in ios.values():
+                connected_components.append(chrom)
+    another_iteration = False
+    for combo in itertools.combinations(range(0, len(connected_components)), 2):
+        if connected_components[combo[0]].intersection(connected_components[combo[1]]):
+            connected_components[combo[0]] = connected_components[combo[0]].union(connected_components[combo[1]])
+            connected_components[combo[1]] = set()
+            another_iteration = True
+    if another_iteration == True:
+        return(generate_connected_components(ios_ref, ios_query, ios_query2, iteration+1, connected_components))
+    else:
+        connected_components = [component for component in connected_components if component != set()]
+        return(connected_components)
+
+def solve_connected_component(connected_component, ios_ref, ios_query, ios_query2):
+    if len(connected_component) == 1:
+        connected_component = [connected_component]
+        return(0, 0, connected_component)
+    else:
+        best_fissions = float("inf")
+        best_fusions = float("inf")
+        best_total = float("inf")
+        best_partition = []
+        for ios in ios_ref, ios_query, ios_query2:
+            temp_chrom = []
+            for chrom in ios.values():
+                if len(set(connected_component).intersection(chrom)) > 0:
+                    temp_chrom.append(chrom)
+            if ios == ios_ref:
+                ios_ref_f = temp_chrom
+            if ios == ios_query:
+                ios_query_f = temp_chrom
+            if ios == ios_query2:
+                ios_query2_f = temp_chrom
+
+        if len(connected_component) > 12:
+            print("[+] Too many (>12) LMSs are in a connected component so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
+            print("[+] Searching genome land ...")
+            def permute_par_by_fusion(par):
+                temp_par = copy.deepcopy(par)
+                if len(temp_par) == 1:
+                    return(temp_par)
+                else:
+                    sampled_chroms = random.sample(temp_par, 2)
+                    for chrom in sampled_chroms:
+                        temp_par.remove(chrom)
+                    temp_par.append(sampled_chroms[0].union(sampled_chroms[1]))
+                    return(temp_par)
+            def permute_par_by_fission(par):
+                temp_par = copy.deepcopy(par)
+                if max([len(chrom) for chrom in temp_par]) == 1:
+                    return(temp_par)
+                else:
+                    sampled_chrom = random.sample(temp_par, 1)
+                    if len(sampled_chrom[0]) < 2:
+                        return permute_par_by_fission(temp_par)
+                    else:
+                        temp_par.remove(sampled_chrom[0])
+                        sampled_int = random.sample(range(1, len(sampled_chrom[0])), 1)[0]
+                        fission_product_1 = set()
+                        fission_product_2 = set()
+                        for index in range(0, sampled_int):
+                            fission_product_1.add(random.sample(sampled_chrom[0], 1)[0])
+                        for index in sampled_chrom[0]:
+                            if index not in fission_product_1:
+                                fission_product_2.add(index)
+                        temp_par.append(fission_product_1)
+                        temp_par.append(fission_product_2)
+                        return(temp_par)
+            for starting_par in ios_ref_f, ios_query_f, ios_query2_f:
+                # five random walk rounds
+                # each starts from the previous round's best point
+                # a round consists of N walks
+                # the length of the walk is reduced each round
+                for rw_param in [[25, 1000], [10, 2000], [5, 3000], [3, 5000], [1, 3000]]:
+                    rw_length = rw_param[0]
+                    rw_iterations = rw_param[1]
+                    for iteration in range(0, rw_iterations):
+                        rw_par = copy.deepcopy(starting_par)
+                        for step in range(0, rw_length):
+                            coin_flip = random.sample(["fusion", "fission"], 1)[0]
+                            if coin_flip == "fusion":
+                                rw_par = permute_par_by_fusion(rw_par)
+                            elif coin_flip == "fission":
+                                rw_par = permute_par_by_fission(rw_par)
+                        total_fusions = 0
+                        total_fissions = 0
+                        for ios in ios_ref_f, ios_query_f, ios_query2_f:
+                            fusions, fissions = ffsd(compact_synteny("null", ios, rw_par, "null", "index_index"))
+                            total_fusions += fusions
+                            total_fissions += fissions
+                        if total_fusions + total_fissions < best_total:
+                            best_fissions = total_fissions
+                            best_fusions = total_fusions
+                            best_total = total_fusions + total_fissions
+                            best_partition = rw_par                   
+                    starting_par = best_partition
         else:
-            connected_components = [component for component in connected_components if component != set()]
-            return(connected_components)
-    connected_components = generate_connected_components(connected_components)
-    possible_component_combos = collections.defaultdict(set)
-    for component in connected_components:
-        all_subsets = []
-        for i in range(1, len(component)+1):
-            for combo in itertools.combinations(component, i):
-                all_subsets.append(combo)
-        for i in range(1, len(component)+1):
-            for combo in itertools.combinations(all_subsets, i):
-                if sum([len(element) for element in combo]) == len(component):
-                    if len([index for element in combo for index in element]) == len(set([index for element in combo for index in element])):
-                        possible_component_combos[frozenset(component)].add(combo)
-    possible_median_genomes = []
-    for component_combo in itertools.product(*(possible_component_combos.values())):
-        a_possible_median_genome = []
-        for component in component_combo:
-            for index in component:
-                a_possible_median_genome.append(set(index))
-        possible_median_genomes.append(a_possible_median_genome)
-    return(possible_median_genomes)
+            # function is from https://stackoverflow.com/questions/19368375/set-partitions-in-python
+            def partition(cc):
+                if len(cc) == 1:
+                    yield [cc]
+                    return
+                first = cc[0]
+                for smaller in partition(cc[1:]):
+                    for n, subset in enumerate(smaller):
+                        yield smaller[:n] + [[first] + subset]  + smaller[n+1:] 
+                    yield [[first]] + smaller
+            connected_component_listed = list(connected_component)
+            for par in partition(connected_component_listed):
+                par = [set(index) for index in par]
+                total_fusions = 0
+                total_fissions = 0
+                for ios in ios_ref_f, ios_query_f, ios_query2_f:
+                    fusions, fissions = ffsd(compact_synteny("null", ios, par, "null", "index_index"))
+                    total_fusions += fusions
+                    total_fissions += fissions
+                if total_fusions + total_fissions < best_total:
+                    best_fissions = total_fissions
+                    best_fusions = total_fusions
+                    best_total = total_fusions + total_fissions
+                    best_partition = par        
+        return(best_fissions, best_fusions, best_partition)
 
 
 def median_genome(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     # get LMSs >= minimum
     # LMSs represent a fissioned median genome
-    # given compact synteny of each extant genome, construct other medians
-    # for each median get the sum of ffsd, return the best one :)
+    # given compact synteny of each extant genome, generate connected components of LMSs
+    # for each connected component return the configuration which minimises ffsd
     LMSs = get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
     print("[=] Generated {} LMSs".format(len(LMSs.keys())))
     ios_ref = compact_synteny(syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
     ios_query = compact_synteny(syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
     ios_query2 = compact_synteny(syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
-    possible_medians = generate_possible_medians(ios_ref, ios_query, ios_query2)
-    print("[=] Generated {} possible median genomes".format(len(possible_medians)))
-    best_median = float("inf")
-    for possible_median in possible_medians:
-        total_observed_fusions = 0
-        total_observed_fissions = 0
-        for ios in ios_ref, ios_query, ios_query2:
-            observed_fusions, observed_fissions = ffsd(compact_synteny(syngraph, ios, possible_median, minimum, "index_index"))
-            total_observed_fusions += observed_fusions
-            total_observed_fissions += observed_fissions
-        if total_observed_fusions + total_observed_fissions <= best_median:
-            best_median = total_observed_fusions + total_observed_fissions
-            print("[=] Best median so far requires: Fusions : {}, Fissions : {}".format(total_observed_fusions, total_observed_fissions))
+    connected_components = []
+    solved_connected_components = []
+    total_fissions = 0
+    total_fusions = 0
+    connected_components = generate_connected_components(ios_ref, ios_query, ios_query2, 0, connected_components)
+    print("[=] Generated {} connected components".format(len(connected_components)))
+    for connected_component in connected_components:
+        fissions, fusions, solved_connected_component = solve_connected_component(connected_component, ios_ref, ios_query, ios_query2)
+        total_fissions += fissions
+        total_fusions += fusions
+        [solved_connected_components.append(chrom) for chrom in solved_connected_component]
+    print("[=] Found a median genome with {} chromosomes that only requires:".format(len(solved_connected_components)))
+    print("[=]\t{}\tfissions".format(total_fissions))
+    print("[=]\t{}\tfusions".format(total_fusions))
+
+
 
 
     
