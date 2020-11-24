@@ -36,12 +36,7 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
 syngraph build -d directory_of_tsv_files -o test
 ```
 
-## Calculate the fission-fusion distance between two genomes
+## Model fissions and fusions over a tree
 ```
-syngraph ffsd -g test.pickle -r genus_speciesA -q genus_speciesB
-```
-
-## Find the median genome for three genomes under the fission-fusion distance
-```
-syngraph ffsd -g test.pickle -r genus_speciesA -q genus_speciesB -Q genus_speciesC
+syngraph ffsd -g test.pickle -t test.nwk -m 2
 ```
