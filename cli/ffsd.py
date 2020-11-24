@@ -1,12 +1,10 @@
 """
 
-Usage: syngraph ffsd -g <FILE> -r <STR> -q <STR> [-m <INT> -Q <STR> -o <STR> -h]
+Usage: syngraph ffsd -g <FILE> -t <NWK> [-m <INT> -o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>                       Syngraph file
-    -r, --reference <STR>                       Reference taxon, e.g. genus_speciesA
-    -q, --query <STR>                           Query taxon, e.g. genus_speciesB
-    -Q, --query2 <STR>                          A second query taxon that can be used to calculate the median genome between ref, query, and query2 [default: None]
+    -t, --tree <NWK>                            Tree in Newick format
     -m, --minimum <INT>                         The minimum number of markers for a synteny relationship [default: 5]
     -o, --outprefix <STR>                       Outprefix [default: test]
     -h, --help                                  Show this screen.
@@ -23,10 +21,8 @@ from source import syngraph as sg
 class ParameterObj():
     def __init__(self, args):
         self.syngraph = self._get_path(args['--syngraph'])
+        self.tree = self._get_tree(args['--tree'])
         self.outprefix = args['--outprefix']
-        self.reference = args['--reference']
-        self.query = args['--query']
-        self.query2 = args['--query2']
         self.minimum = int(args['--minimum'])
 
     def _get_path(self, infile):
@@ -34,6 +30,13 @@ class ParameterObj():
         if not path.exists():
             sys.exit("[X] File not found: %r" % str(infile))
         return path
+
+    def _get_tree(self, tree_f):
+        tree = ete3.Tree(str(self._get_path(tree_f)))
+        for idx, node in enumerate(tree.traverse()):
+            if not node.is_leaf():
+                node.name = "n%s" % idx
+        return tree
 
 def main(run_params):
     try:
@@ -48,13 +51,29 @@ def main(run_params):
         print("[+] Show Syngraph metrics ...")
         syngraph.show_metrics()
 
-        if parameterObj.query2 == "None":
-            instance_of_synteny = sg.compact_synteny(syngraph, parameterObj.reference, parameterObj.query, parameterObj.minimum, "syngraph_syngraph")
-            total_fusions, total_fissions = sg.ffsd(instance_of_synteny)
-            print("[=] Fusions = %s" % total_fusions)
-            print("[=] Fissions = %s" % total_fissions)
-        else:
-            sg.median_genome(syngraph, parameterObj.reference, parameterObj.query, parameterObj.query2, parameterObj.minimum)
+        def get_closest_outgroup(tree, tree_node, child_1, child_2, available_taxa):
+            closest_taxon_so_far = "null"
+            closest_distance_so_far = float("inf")
+            for some_tree_node in tree.search_nodes():
+                if some_tree_node.name in available_taxa:
+                    if not some_tree_node.name == child_1 and not some_tree_node.name == child_2:
+                        if tree_node.get_distance(some_tree_node.name) < closest_distance_so_far:
+                            closest_distance_so_far = tree_node.get_distance(some_tree_node.name)
+                            closest_taxon_so_far = some_tree_node.name
+            return(closest_taxon_so_far)
+
+        available_taxa = set()
+        for leaf in parameterObj.tree.get_leaves():
+            available_taxa.add(leaf.name)
+
+        for tree_node in parameterObj.tree.traverse(strategy='postorder'):
+            if not tree_node.is_leaf() and not tree_node.is_root():
+                child_1 = tree_node.get_children()[0].name
+                child_2 = tree_node.get_children()[1].name
+                outgroup = get_closest_outgroup(parameterObj.tree, tree_node, child_1, child_2, available_taxa)
+                print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
+                syngraph = sg.median_genome(tree_node.name, syngraph, child_1, child_2, outgroup, parameterObj.minimum)
+                available_taxa.add(tree_node.name)
 
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
     except KeyboardInterrupt:

@@ -18,22 +18,9 @@ import copy
 
 '''
 [To Do]
-- Dom:
-    - orthofinder parsing has to be implemented
-    - write LG plotting function, restructure plotting in general (legends!)
-    - sausage-plots (gene order) for syngraphs    
-    - all other trello things
-    - reconstructed Syngraphs are actually lists-of-lists (LoLs) of nodes ... maybe we should make reconstruction/etc work with LoL's 
-    - Lists of lists/sets 
-
 
 - Alex:
     - test for consistency of taxon-names in tree/filenames in parameterObj
-    - Test signed
-    - metrics: 
-        - marker-order-length distributions by tree-node
-        - placements of distinct edges of the same nodes along branches 
-            - basis for event detection (?)
 '''
 
 
@@ -405,46 +392,18 @@ def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
 #############################################################################################
 
 def compact_synteny(syngraph, ref_taxon, query_taxon, minimum, mode):
-    index2refchrom = {}
-    index = 1
-    querychrom2lists = collections.defaultdict(list)
     querychrom2index = collections.defaultdict(set)
     if mode == "LMS_syngraph":
-        for LMS in ref_taxon:
-            index2refchrom[index] = LMS
-            index += 1
-        refchrom2index = {value: key for key, value in index2refchrom.items()}
         for graph_node_id in syngraph.nodes():
             for LMS in ref_taxon:
                 if graph_node_id in ref_taxon[LMS]:
-                    querychrom2lists[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].append(refchrom2index[LMS])
-    elif mode == "syngraph_syngraph":
-        for graph_node_id in syngraph.nodes():
-            if not syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon] in index2refchrom.values():
-                index2refchrom[index] = syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon]
-                index += 1
-        refchrom2index = {value: key for key, value in index2refchrom.items()}
-        for graph_node_id in syngraph.nodes():
-            querychrom2lists[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].append(refchrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][ref_taxon]])
+                    querychrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].add(LMS)
     elif mode == "index_index": # list of sets
-        for ref_chrom in ref_taxon:
-            index2refchrom[index] = ref_chrom
-            index += 1
-        refchrom2index = {frozenset(value): key for key, value in index2refchrom.items()}
         for querychrom in query_taxon:
             for index in querychrom:
-                for refchrom in refchrom2index:
+                for refchrom in ref_taxon:
                     if index in refchrom:
-                        querychrom2lists[frozenset(querychrom)].append(refchrom2index[refchrom])
-    if mode == "syngraph_syngraph":
-        for querychrom in querychrom2lists:
-            counts = collections.Counter(querychrom2lists[querychrom])
-            for index in counts:
-                if counts[index] >= minimum:
-                    querychrom2index[querychrom].add(index)
-    else:
-        for querychrom in querychrom2lists:
-            querychrom2index[querychrom] = set(querychrom2lists[querychrom])
+                        querychrom2index[frozenset(querychrom)].add(frozenset(refchrom))
     return(querychrom2index)
 
 def ffsd(instance_of_synteny):
@@ -477,9 +436,13 @@ def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     for graph_node_id in syngraph.nodes():
         triplet_seqs_by_taxon = set()
         for taxon in ref_taxon, query_taxon, query2_taxon:
-            triplet_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
+            if taxon in syngraph.nodes[graph_node_id]['seqs_by_taxon']:
+                triplet_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
+        # are seqs_by_taxon unique to each taxon? If not the above will not work.
         triplet_seqs_by_taxon = frozenset(list(triplet_seqs_by_taxon))
-        LinkedMarkerSets[triplet_seqs_by_taxon].add(graph_node_id)
+        # need to think about this function given missingness, below is a temp fix
+        if len(triplet_seqs_by_taxon) == 3:
+            LinkedMarkerSets[triplet_seqs_by_taxon].add(graph_node_id)
     Filtered_LinkedMarkerSets = {}
     Filtered_LMS_count = 1
     for LMS in LinkedMarkerSets:
@@ -565,7 +528,7 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                 # each starts from the previous round's best point
                 # a round consists of N walks
                 # the length of the walk is reduced each round
-                for rw_param in [[25, 1000], [10, 2000], [5, 3000], [3, 5000], [1, 3000]]:
+                for rw_param in [[25, 500], [10, 400], [5, 300], [3, 200], [1, 100]]:
                     rw_length = rw_param[0]
                     rw_iterations = rw_param[1]
                     for iteration in range(0, rw_iterations):
@@ -590,6 +553,7 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                     starting_par = best_partition
         else:
             # function is from https://stackoverflow.com/questions/19368375/set-partitions-in-python
+            # this will exhaustively generate all possible partitions
             def partition(cc):
                 if len(cc) == 1:
                     yield [cc]
@@ -616,13 +580,13 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
         return(best_fissions, best_fusions, best_partition)
 
 
-def median_genome(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
+def median_genome(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     # get LMSs >= minimum
-    # LMSs represent a fissioned median genome
-    # given compact synteny of each extant genome, generate connected components of LMSs
-    # for each connected component return the configuration which minimises ffsd
+    # LMSs < minimum are dealt with later and don't contribute to events
+    # remaining LMSs represent a fissioned median genome
     LMSs = get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
-    print("[=] Generated {} LMSs".format(len(LMSs.keys())))
+    print("[=] Generated {} LMSs containing {} markers".format(len(LMSs.keys()), sum([len(LMSs[LMS]) for LMS in LMSs])))
+    # given compact synteny of each extant genome to the fissioned median, generate connected components of LMSs
     ios_ref = compact_synteny(syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
     ios_query = compact_synteny(syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
     ios_query2 = compact_synteny(syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
@@ -632,6 +596,7 @@ def median_genome(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     total_fusions = 0
     connected_components = generate_connected_components(ios_ref, ios_query, ios_query2, 0, connected_components)
     print("[=] Generated {} connected components".format(len(connected_components)))
+    # for each connected component return the configuration which minimises ffsd
     for connected_component in connected_components:
         fissions, fusions, solved_connected_component = solve_connected_component(connected_component, ios_ref, ios_query, ios_query2)
         total_fissions += fissions
@@ -640,6 +605,17 @@ def median_genome(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     print("[=] Found a median genome with {} chromosomes that only requires:".format(len(solved_connected_components)))
     print("[=]\t{}\tfissions".format(total_fissions))
     print("[=]\t{}\tfusions".format(total_fusions))
+    # from solved_connected_components, add this new ancestral genome to the syngraph
+    # also write in LMSs that were too small
+    syngraph.graph['taxa'].add(tree_node)
+    for LMS in LMSs:
+        for graph_node_id in LMSs[LMS]:
+            syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
+            syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + LMS
+    return syngraph
+
+
+
 
 
 
