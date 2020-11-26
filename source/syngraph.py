@@ -433,6 +433,7 @@ def ffsd(instance_of_synteny):
 
 def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     LinkedMarkerSets = collections.defaultdict(set)
+    Unassignable_markers = set()
     for graph_node_id in syngraph.nodes():
         triplet_seqs_by_taxon = set()
         for taxon in ref_taxon, query_taxon, query2_taxon:
@@ -440,16 +441,21 @@ def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
                 triplet_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
         # are seqs_by_taxon unique to each taxon? If not the above will not work.
         triplet_seqs_by_taxon = frozenset(list(triplet_seqs_by_taxon))
-        # need to think about this function given missingness, below is a temp fix
+        # need to think about this function given missingness, is below 'good enough'?
         if len(triplet_seqs_by_taxon) == 3:
             LinkedMarkerSets[triplet_seqs_by_taxon].add(graph_node_id)
+        else:
+            Unassignable_markers.add(graph_node_id)
     Filtered_LinkedMarkerSets = {}
     Filtered_LMS_count = 1
     for LMS in LinkedMarkerSets:
         if len(LinkedMarkerSets[LMS]) >= minimum:
             Filtered_LinkedMarkerSets["LMS_" + str(Filtered_LMS_count)] = LinkedMarkerSets[LMS]
             Filtered_LMS_count += 1
-    return(Filtered_LinkedMarkerSets)
+        else:
+            for graph_node_id in LinkedMarkerSets[LMS]:
+                Unassignable_markers.add(graph_node_id)
+    return(Filtered_LinkedMarkerSets, Unassignable_markers)
 
 def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, connected_components):
     if iteration == 0:
@@ -488,7 +494,6 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                 ios_query_f = temp_chrom
             if ios == ios_query2:
                 ios_query2_f = temp_chrom
-
         if len(connected_component) > 12:
             print("[+] Too many (>12) LMSs are in a connected component so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
             print("[+] Searching genome land ...")
@@ -580,12 +585,15 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
         return(best_fissions, best_fusions, best_partition)
 
 
+
+
 def median_genome(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     # get LMSs >= minimum
     # LMSs < minimum are dealt with later and don't contribute to events
     # remaining LMSs represent a fissioned median genome
-    LMSs = get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
+    LMSs, unassignable_markers = get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
     print("[=] Generated {} LMSs containing {} markers".format(len(LMSs.keys()), sum([len(LMSs[LMS]) for LMS in LMSs])))
+    print("[=] A total of {} markers are not assigned to an LMS".format(len(unassignable_markers)))
     # given compact synteny of each extant genome to the fissioned median, generate connected components of LMSs
     ios_ref = compact_synteny(syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
     ios_query = compact_synteny(syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
@@ -606,22 +614,24 @@ def median_genome(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, min
     print("[=]\t{}\tfissions".format(total_fissions))
     print("[=]\t{}\tfusions".format(total_fusions))
     # from solved_connected_components, add this new ancestral genome to the syngraph
-    # also write in LMSs that were too small
+    # is this the best way to name chromosomes, maybe just use numbers?
     syngraph.graph['taxa'].add(tree_node)
-    for LMS in LMSs:
-        for graph_node_id in LMSs[LMS]:
-            syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
-            syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + LMS
+    new_chromosome = 1
+    for chrom in solved_connected_components:
+        for LMS in chrom:
+            for graph_node_id in LMSs[LMS]:
+                syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
+                syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + str(new_chromosome)
+        new_chromosome += 1
+    # finally, write in LMSs that were too small or missing from a taxon, but can be assigned by parismony
+    #   for each unassignable marker, ask whether it is in >=two of the three triplet taxa
+    #   if yes, ask whether it is syntenic to a shared LMS in two taxa
+    #   if yes, add this graph_node_id to the graph with the seq of that LMS
     return syngraph
 
 
-
-
-
-
-
-    
-
+#############################################################################################
+#############################################################################################
 #############################################################################################
 
 class Syngraph(nx.Graph):

@@ -56,11 +56,13 @@ def main(run_params):
             closest_distance_so_far = float("inf")
             for some_tree_node in tree.search_nodes():
                 if some_tree_node.name in available_taxa:
-                    if not some_tree_node.name == child_1 and not some_tree_node.name == child_2:
+                    if not some_tree_node.name in [descendant.name for descendant in tree_node.get_descendants()]:
                         if tree_node.get_distance(some_tree_node.name) < closest_distance_so_far:
                             closest_distance_so_far = tree_node.get_distance(some_tree_node.name)
                             closest_taxon_so_far = some_tree_node.name
             return(closest_taxon_so_far)
+
+        # first traversal forms triplets from the two children and an outgroup
 
         available_taxa = set()
         for leaf in parameterObj.tree.get_leaves():
@@ -74,6 +76,21 @@ def main(run_params):
                 print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
                 syngraph = sg.median_genome(tree_node.name, syngraph, child_1, child_2, outgroup, parameterObj.minimum)
                 available_taxa.add(tree_node.name)
+
+        # second traversal forms triplets from the two children and the parent
+        # can be done recursively
+
+        for tree_node in parameterObj.tree.traverse(strategy='postorder'):
+            if not tree_node.is_leaf() and not tree_node.is_root():
+                # remove that tree_node from the current syngraph?
+                # or something cleverer?
+                child_1 = tree_node.get_children()[0].name
+                child_2 = tree_node.get_children()[1].name
+                parent = tree_node.up.name
+                # what about for children of the root? Should probably just use an outgroup here
+                pass
+
+
 
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
     except KeyboardInterrupt:
