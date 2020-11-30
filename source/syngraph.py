@@ -404,7 +404,7 @@ def compact_synteny(syngraph, ref_taxon, query_taxon, minimum, mode):
                 for refchrom in ref_taxon:
                     if index in refchrom:
                         querychrom2index[frozenset(querychrom)].add(frozenset(refchrom))
-    return(querychrom2index)
+    return querychrom2index
 
 def ffsd(instance_of_synteny):
     def check_for_fusions(instance_of_synteny, fusions_so_far):
@@ -472,7 +472,7 @@ def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, con
         return(generate_connected_components(ios_ref, ios_query, ios_query2, iteration+1, connected_components))
     else:
         connected_components = [component for component in connected_components if component != set()]
-        return(connected_components)
+        return connected_components 
 
 def solve_connected_component(connected_component, ios_ref, ios_query, ios_query2):
     if len(connected_component) == 1:
@@ -584,7 +584,37 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                     best_partition = par        
         return(best_fissions, best_fusions, best_partition)
 
-
+def write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers):
+    # if there are bugs in this function then this would be a big problem
+    # how will this function behave when there are multiple traversals?
+    reassigned_markers = 0
+    LMS_sbt_chrom = {}
+    for LMS in LMSs:
+        l_sbt = set()
+        for taxon in ref_taxon, query_taxon, query2_taxon:
+            if taxon in syngraph.nodes[list(LMSs[LMS])[0]]['seqs_by_taxon']:
+                l_sbt.add(syngraph.nodes[list(LMSs[LMS])[0]]['seqs_by_taxon'][taxon])
+        l_chrom = syngraph.nodes[list(LMSs[LMS])[0]]['seqs_by_taxon'][tree_node]
+        LMS_sbt_chrom[frozenset(l_sbt)] = l_chrom
+    for unassignable in unassignable_markers:
+        u_chroms = set()
+        u_sbt = set()
+        for taxon in ref_taxon, query_taxon, query2_taxon:
+            if taxon in syngraph.nodes[unassignable]['seqs_by_taxon']:
+                u_sbt.add(syngraph.nodes[unassignable]['seqs_by_taxon'][taxon])
+        for l_sbt in LMS_sbt_chrom:
+            matches = 0
+            for taxon in u_sbt:
+                if taxon in l_sbt:
+                    matches += 1
+            if matches == 2:
+                u_chroms.add(LMS_sbt_chrom[l_sbt])
+        if len(u_chroms) == 1:
+            syngraph.nodes[unassignable]['taxa'].add(tree_node)
+            syngraph.nodes[unassignable]['seqs_by_taxon'][tree_node] = list(u_chroms)[0]
+            reassigned_markers += 1
+    print("[=] Assigned {} of the markers not within any LMS".format(reassigned_markers))
+    return syngraph
 
 
 def median_genome(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
@@ -623,10 +653,8 @@ def median_genome(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, min
                 syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
                 syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + str(new_chromosome)
         new_chromosome += 1
-    # finally, write in LMSs that were too small or missing from a taxon, but can be assigned by parismony
-    #   for each unassignable marker, ask whether it is in >=two of the three triplet taxa
-    #   if yes, ask whether it is syntenic to a shared LMS in two taxa
-    #   if yes, add this graph_node_id to the graph with the seq of that LMS
+    # finally, write in LMSs/markers that were too small or missing from a taxon, but can be assigned by parismony
+    syngraph = write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers)
     return syngraph
 
 
