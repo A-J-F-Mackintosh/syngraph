@@ -441,7 +441,6 @@ def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
                 triplet_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
         # are seqs_by_taxon unique to each taxon? If not the above will not work.
         triplet_seqs_by_taxon = frozenset(list(triplet_seqs_by_taxon))
-        # need to think about this function given missingness, is below 'good enough'?
         if len(triplet_seqs_by_taxon) == 3:
             LinkedMarkerSets[triplet_seqs_by_taxon].add(graph_node_id)
         else:
@@ -475,6 +474,7 @@ def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, con
         return connected_components 
 
 def solve_connected_component(connected_component, ios_ref, ios_query, ios_query2):
+    # surely this function can be improved A LOT
     if len(connected_component) == 1:
         connected_component = [connected_component]
         return(0, 0, connected_component)
@@ -617,17 +617,17 @@ def write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxo
     return syngraph
 
 
-def median_genome(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
+def median_genome(tree_node, input_syngraph, output_syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
     # get LMSs >= minimum
     # LMSs < minimum are dealt with later and don't contribute to events
     # remaining LMSs represent a fissioned median genome
-    LMSs, unassignable_markers = get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
+    LMSs, unassignable_markers = get_LMS_triplets(input_syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
     print("[=] Generated {} LMSs containing {} markers".format(len(LMSs.keys()), sum([len(LMSs[LMS]) for LMS in LMSs])))
     print("[=] A total of {} markers are not assigned to an LMS".format(len(unassignable_markers)))
     # given compact synteny of each extant genome to the fissioned median, generate connected components of LMSs
-    ios_ref = compact_synteny(syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
-    ios_query = compact_synteny(syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
-    ios_query2 = compact_synteny(syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
+    ios_ref = compact_synteny(input_syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
+    ios_query = compact_synteny(input_syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
+    ios_query2 = compact_synteny(input_syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
     connected_components = []
     solved_connected_components = []
     total_fissions = 0
@@ -643,19 +643,19 @@ def median_genome(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, min
     print("[=] Found a median genome with {} chromosomes that only requires:".format(len(solved_connected_components)))
     print("[=]\t{}\tfissions".format(total_fissions))
     print("[=]\t{}\tfusions".format(total_fusions))
-    # from solved_connected_components, add this new ancestral genome to the syngraph
-    # is this the best way to name chromosomes, maybe just use numbers?
-    syngraph.graph['taxa'].add(tree_node)
+    # from solved_connected_components, add this new ancestral genome to a syngraph
+    # is this the best way to name chromosomes?
+    output_syngraph.graph['taxa'].add(tree_node)
     new_chromosome = 1
     for chrom in solved_connected_components:
         for LMS in chrom:
             for graph_node_id in LMSs[LMS]:
-                syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
-                syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + str(new_chromosome)
+                output_syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
+                output_syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + str(new_chromosome)
         new_chromosome += 1
     # finally, write in LMSs/markers that were too small or missing from a taxon, but can be assigned by parismony
-    syngraph = write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers)
-    return syngraph
+    output_syngraph = write_in_unassigned(tree_node, input_syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers)
+    return output_syngraph
 
 
 #############################################################################################
