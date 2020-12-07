@@ -55,7 +55,6 @@ def main(run_params):
         #### TO DO LIST AND QUESTIONS
         ####
         #### For each triplet, pre-calculate from-median probs of fis/fus given branch length and direction
-        #### Might be easiest to evaluate overall likelihood/parismony with a distinct function, rather than on the fly
         #### Should the second traversal be recursive?
         #### How easy would including RTs be?
         #### Could adding in unassignables cause problems in later traversals?
@@ -65,6 +64,7 @@ def main(run_params):
         traversal_1_syngraph = copy.deepcopy(syngraph)
 
         # a function for getting the closest outgroup to a tree node
+        # outgroup must be in 'available_taxa' and cannot be a descenant of the tree_node or the tree_nodes itself.
         def get_closest_outgroup(tree, tree_node, child_1, child_2, available_taxa):
             closest_taxon_so_far = "null"
             closest_distance_so_far = float("inf")
@@ -75,8 +75,15 @@ def main(run_params):
                             if tree_node.get_distance(some_tree_node.name) < closest_distance_so_far:
                                 closest_distance_so_far = tree_node.get_distance(some_tree_node.name)
                                 closest_taxon_so_far = some_tree_node.name
-            return(closest_taxon_so_far)
+            return closest_taxon_so_far
 
+        # a function which gives branch lengths by orientation, i.e. how much up and how much down
+        # the median/target will be A, the child/outgroup/parent will be B
+        def get_branch_distances(tree, tree_node_A, tree_node_B):
+            mrca = tree.get_common_ancestor(tree_node_A, tree_node_B)
+            up_distance = mrca.get_distance(tree_node_A)
+            down_distance = mrca.get_distance(tree_node_B)
+            return up_distance, down_distance
 
         # define which taxa are extant and so can be used as outgroups from the start
         available_taxa = set()
@@ -88,7 +95,6 @@ def main(run_params):
         # syngraph is updated each iteration
         print("[+] Starting first traversal ...")
         print("[+] ========================================================================")
-
         for tree_node in parameterObj.tree.traverse(strategy='postorder'):
             if not tree_node.is_leaf() and not tree_node.is_root():
                 child_1 = tree_node.get_children()[0].name
@@ -97,15 +103,13 @@ def main(run_params):
                 print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
                 traversal_0_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, child_1, child_2, outgroup, parameterObj.minimum)
                 available_taxa.add(tree_node.name)
-
         print("[=] ========================================================================")
 
-        # second traversal forms triplets from the two children and the parent, as we now have the parents from the first traversal
+        # second traversal forms triplets from the two children and the parent, as we now have parents (internal nodes) from the first traversal
         # if a node is a child of the root then the triplet is formed from the node's two children and an outgroup, i.e. the other child of the root
         # info is read from the first traversals syngraoh but a new syngraph is written to
         print("[+] Starting second traversal ...")
         print("[+] ========================================================================")
-
         for tree_node in parameterObj.tree.traverse(strategy='postorder'):
             if not tree_node.is_leaf() and not tree_node.is_root():
                 child_1 = tree_node.get_children()[0].name
@@ -118,21 +122,21 @@ def main(run_params):
                     parent = tree_node.up.name
                     print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, parent))
                     traversal_1_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_1_syngraph, child_1, child_2, parent, parameterObj.minimum)
-
         print("[=] ========================================================================")
 
         # evaluator should iterate from the children of the root to the leaves
-        print("[=] ========================================================================")
-
+        print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions")
         for tree_node in parameterObj.tree.traverse(strategy='preorder'):
             if not tree_node.is_leaf() and not tree_node.is_root():
                 child_1 = tree_node.get_children()[0].name
                 child_2 = tree_node.get_children()[1].name
                 for child in child_1, child_2:
-                    #print(tree_node.name, child, tree_node.get_distance(child))
-                    # need to write a get_LMS_for_pair function, or use the existing function in a hacky way
-                    pass
-
+                    parent_child_LMSs, unassignable_markers = sg.get_LMSs(traversal_1_syngraph, [tree_node.name, child], parameterObj.minimum)
+                    parent_LMS_ios = sg.compact_synteny(traversal_1_syngraph, parent_child_LMSs, tree_node.name, "LMS_syngraph")
+                    child_LMS_ios = sg.compact_synteny(traversal_1_syngraph, parent_child_LMSs, child, "LMS_syngraph")
+                    fusions, fissions = sg.ffsd(sg.compact_synteny("null", [value for value in child_LMS_ios.values()], [value for value in parent_LMS_ios.values()], "index_index"))
+                    print("[=]\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions))
+        print("[=] ========================================================================")
 
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
     except KeyboardInterrupt:

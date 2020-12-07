@@ -391,7 +391,7 @@ def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
 ################################################################################:(###########
 #############################################################################################
 
-def compact_synteny(syngraph, ref_taxon, query_taxon, minimum, mode):
+def compact_synteny(syngraph, ref_taxon, query_taxon, mode):
     querychrom2index = collections.defaultdict(set)
     if mode == "LMS_syngraph":
         for graph_node_id in syngraph.nodes():
@@ -431,18 +431,18 @@ def ffsd(instance_of_synteny):
     total_fissions = check_for_fissions(instance_of_synteny, 0)
     return(total_fusions, total_fissions)
 
-def get_LMS_triplets(syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
+def get_LMSs(syngraph, list_of_taxa, minimum):
     LinkedMarkerSets = collections.defaultdict(set)
     Unassignable_markers = set()
     for graph_node_id in syngraph.nodes():
-        triplet_seqs_by_taxon = set()
-        for taxon in ref_taxon, query_taxon, query2_taxon:
+        target_seqs_by_taxon = set()
+        for taxon in list_of_taxa:
             if taxon in syngraph.nodes[graph_node_id]['seqs_by_taxon']:
-                triplet_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
+                target_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
         # are seqs_by_taxon unique to each taxon? If not the above will not work.
-        triplet_seqs_by_taxon = frozenset(list(triplet_seqs_by_taxon))
-        if len(triplet_seqs_by_taxon) == 3:
-            LinkedMarkerSets[triplet_seqs_by_taxon].add(graph_node_id)
+        target_seqs_by_taxon = frozenset(list(target_seqs_by_taxon))
+        if len(target_seqs_by_taxon) == len(list_of_taxa):
+            LinkedMarkerSets[target_seqs_by_taxon].add(graph_node_id)
         else:
             Unassignable_markers.add(graph_node_id)
     Filtered_LinkedMarkerSets = {}
@@ -468,7 +468,7 @@ def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, con
             connected_components[combo[1]] = set()
             another_iteration = True
     if another_iteration == True:
-        return(generate_connected_components(ios_ref, ios_query, ios_query2, iteration+1, connected_components))
+        return generate_connected_components(ios_ref, ios_query, ios_query2, iteration+1, connected_components)
     else:
         connected_components = [component for component in connected_components if component != set()]
         return connected_components 
@@ -477,7 +477,7 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
     # surely this function can be improved A LOT
     if len(connected_component) == 1:
         connected_component = [connected_component]
-        return(0, 0, connected_component)
+        return 0, 0, connected_component
     else:
         best_fissions = float("inf")
         best_fusions = float("inf")
@@ -500,17 +500,17 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
             def permute_par_by_fusion(par):
                 temp_par = copy.deepcopy(par)
                 if len(temp_par) == 1:
-                    return(temp_par)
+                    return temp_par
                 else:
                     sampled_chroms = random.sample(temp_par, 2)
                     for chrom in sampled_chroms:
                         temp_par.remove(chrom)
                     temp_par.append(sampled_chroms[0].union(sampled_chroms[1]))
-                    return(temp_par)
+                    return temp_par
             def permute_par_by_fission(par):
                 temp_par = copy.deepcopy(par)
                 if max([len(chrom) for chrom in temp_par]) == 1:
-                    return(temp_par)
+                    return temp_par
                 else:
                     sampled_chrom = random.sample(temp_par, 1)
                     if len(sampled_chrom[0]) < 2:
@@ -527,13 +527,13 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                                 fission_product_2.add(index)
                         temp_par.append(fission_product_1)
                         temp_par.append(fission_product_2)
-                        return(temp_par)
+                        return temp_par
             for starting_par in ios_ref_f, ios_query_f, ios_query2_f:
                 # five random walk rounds
                 # each starts from the previous round's best point
                 # a round consists of N walks
                 # the length of the walk is reduced each round
-                for rw_param in [[25, 500], [10, 400], [5, 300], [3, 200], [1, 100]]:
+                for rw_param in [[25, 3000], [10, 2000], [5, 2000], [3, 1000], [1, 1000]]:
                     rw_length = rw_param[0]
                     rw_iterations = rw_param[1]
                     for iteration in range(0, rw_iterations):
@@ -547,7 +547,7 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                         total_fusions = 0
                         total_fissions = 0
                         for ios in ios_ref_f, ios_query_f, ios_query2_f:
-                            fusions, fissions = ffsd(compact_synteny("null", ios, rw_par, "null", "index_index"))
+                            fusions, fissions = ffsd(compact_synteny("null", ios, rw_par, "index_index"))
                             total_fusions += fusions
                             total_fissions += fissions
                         if total_fusions + total_fissions < best_total:
@@ -574,7 +574,7 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                 total_fusions = 0
                 total_fissions = 0
                 for ios in ios_ref_f, ios_query_f, ios_query2_f:
-                    fusions, fissions = ffsd(compact_synteny("null", ios, par, "null", "index_index"))
+                    fusions, fissions = ffsd(compact_synteny("null", ios, par, "index_index"))
                     total_fusions += fusions
                     total_fissions += fissions
                 if total_fusions + total_fissions < best_total:
@@ -582,7 +582,7 @@ def solve_connected_component(connected_component, ios_ref, ios_query, ios_query
                     best_fusions = total_fusions
                     best_total = total_fusions + total_fissions
                     best_partition = par        
-        return(best_fissions, best_fusions, best_partition)
+        return best_fissions, best_fusions, best_partition
 
 def write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers):
     # if there are bugs in this function then this would be a big problem
@@ -621,13 +621,13 @@ def median_genome(tree_node, input_syngraph, output_syngraph, ref_taxon, query_t
     # get LMSs >= minimum
     # LMSs < minimum are dealt with later and don't contribute to events
     # remaining LMSs represent a fissioned median genome
-    LMSs, unassignable_markers = get_LMS_triplets(input_syngraph, ref_taxon, query_taxon, query2_taxon, minimum)
+    LMSs, unassignable_markers = get_LMSs(input_syngraph, [ref_taxon, query_taxon, query2_taxon], minimum)
     print("[=] Generated {} LMSs containing {} markers".format(len(LMSs.keys()), sum([len(LMSs[LMS]) for LMS in LMSs])))
     print("[=] A total of {} markers are not assigned to an LMS".format(len(unassignable_markers)))
     # given compact synteny of each extant genome to the fissioned median, generate connected components of LMSs
-    ios_ref = compact_synteny(input_syngraph, LMSs, ref_taxon, minimum, "LMS_syngraph")
-    ios_query = compact_synteny(input_syngraph, LMSs, query_taxon, minimum, "LMS_syngraph")
-    ios_query2 = compact_synteny(input_syngraph, LMSs, query2_taxon, minimum, "LMS_syngraph")
+    ios_ref = compact_synteny(input_syngraph, LMSs, ref_taxon, "LMS_syngraph")
+    ios_query = compact_synteny(input_syngraph, LMSs, query_taxon, "LMS_syngraph")
+    ios_query2 = compact_synteny(input_syngraph, LMSs, query2_taxon, "LMS_syngraph")
     connected_components = []
     solved_connected_components = []
     total_fissions = 0
