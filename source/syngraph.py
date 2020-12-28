@@ -471,118 +471,127 @@ def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, con
         return generate_connected_components(ios_ref, ios_query, ios_query2, iteration+1, connected_components)
     else:
         connected_components = [component for component in connected_components if component != set()]
-        return connected_components 
+        return connected_components
 
-def solve_connected_component(connected_component, ios_ref, ios_query, ios_query2):
-    # surely this function can be improved A LOT
-    if len(connected_component) == 1:
-        connected_component = [connected_component]
-        return 0, 0, connected_component
+# function is from https://stackoverflow.com/questions/19368375/set-partitions-in-python
+# this will exhaustively generate all possible partitions
+def partition(cc):
+    if len(cc) == 1:
+        yield [cc]
+        return
+    first = cc[0]
+    for smaller in partition(cc[1:]):
+        for n, subset in enumerate(smaller):
+            yield smaller[:n] + [[first] + subset]  + smaller[n+1:] 
+        yield [[first]] + smaller
+
+def exhaustive_solver(connected_components, ios_ref, ios_query, ios_query2):
+    # if there are no 'tangles' then there are no events
+    if max([len(connected_component) for connected_component in connected_components]) == 1:
+        return 0, 0, connected_components
+    # else, generate all possible candidate genomes from the connected components
     else:
+        possible_medians = []
+        partition_dict = collections.defaultdict(list)
+        for connected_component in connected_components:
+            for par in partition(list(connected_component)):
+                par = [set(pa) for pa in par]
+                partition_dict[frozenset(list(connected_component))].append(par)
+        for combo in itertools.product(*partition_dict.values()):
+            a_possible_median = []
+            for lists in combo:
+                for sets in lists:
+                    a_possible_median.append(sets)
+            possible_medians.append(a_possible_median)
+        # now evaluate candidate genomes
+        # will change this once I have a likelihood function
         best_fissions = float("inf")
         best_fusions = float("inf")
         best_total = float("inf")
-        best_partition = []
-        for ios in ios_ref, ios_query, ios_query2:
-            temp_chrom = []
-            for chrom in ios.values():
-                if len(set(connected_component).intersection(chrom)) > 0:
-                    temp_chrom.append(chrom)
-            if ios == ios_ref:
-                ios_ref_f = temp_chrom
-            if ios == ios_query:
-                ios_query_f = temp_chrom
-            if ios == ios_query2:
-                ios_query2_f = temp_chrom
-        if len(connected_component) > 12:
-            print("[+] Too many (>12) LMSs are in a connected component so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
-            print("[+] Searching genome land ...")
-            def permute_par_by_fusion(par):
-                temp_par = copy.deepcopy(par)
-                if len(temp_par) == 1:
-                    return temp_par
-                else:
-                    sampled_chroms = random.sample(temp_par, 2)
-                    for chrom in sampled_chroms:
-                        temp_par.remove(chrom)
-                    temp_par.append(sampled_chroms[0].union(sampled_chroms[1]))
-                    return temp_par
-            def permute_par_by_fission(par):
-                temp_par = copy.deepcopy(par)
-                if max([len(chrom) for chrom in temp_par]) == 1:
-                    return temp_par
-                else:
-                    sampled_chrom = random.sample(temp_par, 1)
-                    if len(sampled_chrom[0]) < 2:
-                        return permute_par_by_fission(temp_par)
-                    else:
-                        temp_par.remove(sampled_chrom[0])
-                        sampled_int = random.sample(range(1, len(sampled_chrom[0])), 1)[0]
-                        fission_product_1 = set()
-                        fission_product_2 = set()
-                        for index in range(0, sampled_int):
-                            fission_product_1.add(random.sample(sampled_chrom[0], 1)[0])
-                        for index in sampled_chrom[0]:
-                            if index not in fission_product_1:
-                                fission_product_2.add(index)
-                        temp_par.append(fission_product_1)
-                        temp_par.append(fission_product_2)
-                        return temp_par
-            for starting_par in ios_ref_f, ios_query_f, ios_query2_f:
-                # five random walk rounds
-                # each starts from the previous round's best point
-                # a round consists of N walks
-                # the length of the walk is reduced each round
-                for rw_param in [[25, 3000], [10, 2000], [5, 2000], [3, 1000], [1, 1000]]:
-                    rw_length = rw_param[0]
-                    rw_iterations = rw_param[1]
-                    for iteration in range(0, rw_iterations):
-                        rw_par = copy.deepcopy(starting_par)
-                        for step in range(0, rw_length):
-                            coin_flip = random.sample(["fusion", "fission"], 1)[0]
-                            if coin_flip == "fusion":
-                                rw_par = permute_par_by_fusion(rw_par)
-                            elif coin_flip == "fission":
-                                rw_par = permute_par_by_fission(rw_par)
-                        total_fusions = 0
-                        total_fissions = 0
-                        for ios in ios_ref_f, ios_query_f, ios_query2_f:
-                            fusions, fissions = ffsd(compact_synteny("null", ios, rw_par, "index_index"))
-                            total_fusions += fusions
-                            total_fissions += fissions
-                        if total_fusions + total_fissions < best_total:
-                            best_fissions = total_fissions
-                            best_fusions = total_fusions
-                            best_total = total_fusions + total_fissions
-                            best_partition = rw_par                   
-                    starting_par = best_partition
+        best_genome = []
+        for possible_median in possible_medians:
+            total_fissions = 0
+            total_fusions = 0
+            for ios in ios_ref, ios_query, ios_query2:
+                ios = [chrom for chrom in ios.values()]
+                fusions, fissions = ffsd(compact_synteny("null", ios, possible_median, "index_index"))
+                total_fissions += fissions
+                total_fusions += fusions
+            if total_fusions + total_fissions < best_total:
+                best_fissions = total_fissions
+                best_fusions = total_fusions
+                best_total = total_fusions + total_fissions
+                best_genome = possible_median      
+        return best_fissions, best_fusions, best_genome
+
+def heuristic_solver(connected_component, ios_ref, ios_query, ios_query2):
+    print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
+    print("[+] Searching genome land ...")
+    best_fissions = float("inf")
+    best_fusions = float("inf")
+    best_total = float("inf")
+    best_genome = []
+    def permute_genome_by_fusion(genome):
+        if len(genome) == 1:
+            return genome
         else:
-            # function is from https://stackoverflow.com/questions/19368375/set-partitions-in-python
-            # this will exhaustively generate all possible partitions
-            def partition(cc):
-                if len(cc) == 1:
-                    yield [cc]
-                    return
-                first = cc[0]
-                for smaller in partition(cc[1:]):
-                    for n, subset in enumerate(smaller):
-                        yield smaller[:n] + [[first] + subset]  + smaller[n+1:] 
-                    yield [[first]] + smaller
-            connected_component_listed = list(connected_component)
-            for par in partition(connected_component_listed):
-                par = [set(index) for index in par]
+            temp_genome = copy.deepcopy(genome)
+            sampled_chroms = random.sample(temp_genome, 2)
+            for chrom in sampled_chroms:
+                temp_genome.remove(chrom)
+            temp_genome.append(sampled_chroms[0].union(sampled_chroms[1]))
+            return temp_genome
+    def permute_genome_by_fission(genome):
+        if max([len(chrom) for chrom in genome]) == 1:
+            return genome
+        else:
+            temp_genome = copy.deepcopy(genome)
+            samplable_chroms = [chrom for chrom in temp_genome if len(chrom) > 1]
+            sampled_chrom = random.sample(samplable_chroms, 1)
+            temp_genome.remove(sampled_chrom[0])
+            sampled_int = random.sample(range(1, len(sampled_chrom[0])), 1)[0]
+            fission_product_1 = set()
+            fission_product_2 = set()
+            for index in random.sample(sampled_chrom[0], sampled_int):
+                fission_product_1.add(index)
+            for index in sampled_chrom[0]:
+                if index not in fission_product_1:
+                    fission_product_2.add(index)
+            temp_genome.append(fission_product_1)
+            temp_genome.append(fission_product_2)
+            return temp_genome
+    for starting_genome in ios_ref, ios_query, ios_query2:
+        # five random walk rounds
+        # each starts from the previous round's best point
+        # the length of the walk is reduced each round
+        starting_genome = [chrom for chrom in starting_genome.values()]
+        for rw_param in [[25, 2500], [10, 2000], [5, 2000], [3, 1000], [1, 1000]]:
+            rw_length = rw_param[0]
+            rw_iterations = rw_param[1]
+            for iteration in range(0, rw_iterations):
+                rw_genome = copy.deepcopy(starting_genome)
+                for step in range(0, rw_length):
+                    coin_flip = random.sample(["fusion", "fission"], 1)[0]
+                    if coin_flip == "fusion":
+                        rw_genome = permute_genome_by_fusion(rw_genome)
+                    elif coin_flip == "fission":
+                        rw_genome = permute_genome_by_fission(rw_genome)
                 total_fusions = 0
                 total_fissions = 0
-                for ios in ios_ref_f, ios_query_f, ios_query2_f:
-                    fusions, fissions = ffsd(compact_synteny("null", ios, par, "index_index"))
+                # will change this once I have a likelihood function
+                for ios in ios_ref, ios_query, ios_query2:
+                    ios = [chrom for chrom in ios.values()]
+                    fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
                     total_fusions += fusions
                     total_fissions += fissions
                 if total_fusions + total_fissions < best_total:
                     best_fissions = total_fissions
                     best_fusions = total_fusions
                     best_total = total_fusions + total_fissions
-                    best_partition = par        
-        return best_fissions, best_fusions, best_partition
+                    best_genome = rw_genome
+                    print(best_total, len(best_genome))                  
+            starting_genome = best_genome        
+    return best_fissions, best_fusions, best_genome
 
 def write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers):
     # if there are bugs in this function then this would be a big problem
@@ -634,12 +643,20 @@ def median_genome(tree_node, input_syngraph, output_syngraph, ref_taxon, query_t
     total_fusions = 0
     connected_components = generate_connected_components(ios_ref, ios_query, ios_query2, 0, connected_components)
     print("[=] Generated {} connected components".format(len(connected_components)))
-    # for each connected component return the configuration which minimises ffsd
-    for connected_component in connected_components:
-        fissions, fusions, solved_connected_component = solve_connected_component(connected_component, ios_ref, ios_query, ios_query2)
-        total_fissions += fissions
-        total_fusions += fusions
-        [solved_connected_components.append(chrom) for chrom in solved_connected_component]
+    # now check whether, given the connected components, the best genome can be found exhaustively
+    # and then call the appropriate solving function
+    bell_numbers = [1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, 678570, 4213597]
+    if max([len(connected_component) for connected_component in connected_components]) > 12:
+        total_fissions, total_fusions, solved_connected_components = heuristic_solver(connected_components, ios_ref, ios_query, ios_query2)
+    else:
+        possible_medians = 1
+        for connected_component in connected_components:
+            possible_medians *= bell_numbers[len(connected_component)-1]
+        print(possible_medians)
+        if possible_medians > 4213597:
+            total_fissions, total_fusions, solved_connected_components = heuristic_solver(connected_components, ios_ref, ios_query, ios_query2)
+        else:
+            total_fissions, total_fusions, solved_connected_components = exhaustive_solver(connected_components, ios_ref, ios_query, ios_query2)
     print("[=] Found a median genome with {} chromosomes that only requires:".format(len(solved_connected_components)))
     print("[=]\t{}\tfissions".format(total_fissions))
     print("[=]\t{}\tfusions".format(total_fusions))
