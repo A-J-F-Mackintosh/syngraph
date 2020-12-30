@@ -3,12 +3,12 @@ import itertools
 import matplotlib
 import matplotlib.cm as cm
 import pandas as pd
+pd.set_option('display.max_rows', None)
 from tqdm import tqdm
 import networkx as nx
 import collections
-pd.set_option('display.max_rows', None)
 import functools
-import statistics
+from scipy import stats
 from operator import attrgetter
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -188,200 +188,6 @@ def plot_histogram(x, out_f):
     ax.bar(center, hist, align='center', width=width)
     fig.savefig('%s.png' % out_f, format="png")
 
-def find_LinkedMarkerSets(syngraph):
-    '''
-    input: syngraph
-    output: linked marker sets
-    '''
-    LinkedMarkerSets = [] # list of lists
-    for graph_node_id in syngraph.nodes():
-        if len(LinkedMarkerSets) == 0:
-            LinkedMarkerSets.append([graph_node_id])
-        else:
-            match = False
-            for LMS in LinkedMarkerSets:
-                if syngraph.nodes[graph_node_id]['seqs_by_taxon'] == syngraph.nodes[LMS[0]]['seqs_by_taxon']:
-                    LMS.append(graph_node_id)
-                    match = True
-            if match == False:
-                LinkedMarkerSets.append([graph_node_id])
-    LinkedMarkerSets.sort(reverse=True, key=len)
-    # make an ID dict
-    LinkedMarkerSet_IDs = {} # dict with a ID key for each FSBlock
-    ID = 0
-    for LMS in LinkedMarkerSets:
-        ID += 1
-        LinkedMarkerSet_IDs[ID] = LMS
-    Total_IDs = ID
-    print("[=] Found {} linked marker sets".format(Total_IDs))
-    print("[=] Largest linked marker set has a length of {}".format(len(LinkedMarkerSets[0])))
-    print("[=] Smallest linked marker set has a length of {}".format(len(LinkedMarkerSets[-1])))
-    for LMS in LinkedMarkerSets:
-        print(len(LMS))
-    return LinkedMarkerSets, LinkedMarkerSet_IDs
-
-
-def reconstruct_linkage_groups_for_each_tree_node(syngraph, linked_marker_sets, linked_marker_set_IDs, tree, algorithm='fitch'):
-
-    '''
-    - input: syngraph, tree
-    - output: for each tree node, nodes assigned to LGs
-    ''' 
-    LG_store = collections.defaultdict(lambda: collections.defaultdict(dict)) # put inferred LGs in here later
-    # calculate coocurence matrix for each taxon and produce a graph of the matrix, a C_graph
-    coocurence_by_taxon_by_LMS_ID = collections.defaultdict(lambda: collections.defaultdict(lambda: {False})) # nested dict, set_of_2_LMS --> taxon --> True/False
-    if algorithm == 'fitch':
-        edges_by_tree_node = collections.defaultdict(list)
-        print("[+] Collecting coocurence data from taxa")
-        for taxon in syngraph.graph['taxa']:
-            for ID_comparison in itertools.combinations(range(1, (len(linked_marker_sets)+1)), 2):
-                a_graph_node = linked_marker_set_IDs[ID_comparison[0]][0]
-                another_graph_node = linked_marker_set_IDs[ID_comparison[1]][0]
-                if syngraph.nodes[a_graph_node]['seqs_by_taxon'][taxon] == syngraph.nodes[another_graph_node]['seqs_by_taxon'][taxon]:
-                    coocurence_by_taxon_by_LMS_ID[frozenset(ID_comparison)][taxon] = {True}
-        # reconstruct coocurence matrix for internal nodes
-        print("[+] Estimating coocurence data for ancestral genomes")
-        for ID_comparison in coocurence_by_taxon_by_LMS_ID:
-            coocurence_by_taxon_by_LMS_ID[ID_comparison] = fitch(coocurence_by_taxon_by_LMS_ID[ID_comparison], 1, tree)
-            u, v = tuple(ID_comparison)
-            for tree_node, coocurence in coocurence_by_taxon_by_LMS_ID[ID_comparison].items():
-                if coocurence == {True}:
-                    edges_by_tree_node[tree_node].append((u, v, {'taxa': tree_node}))
-        # construct a graph where edges represent coocurence
-        print("[+] Building coocurence graphs")
-        C_graphs_by_tree_node = {}
-        for tree_node, edges in edges_by_tree_node.items():
-            C_graphs_by_tree_node[tree_node] = Syngraph()
-            C_graphs_by_tree_node[tree_node].from_edges(edges, taxa=set(tree_node))
-            # add LMS that connect to nothing as island nodes
-            for graph_node_id in range(1, len(linked_marker_sets)+1):
-                if graph_node_id not in C_graphs_by_tree_node[tree_node].nodes():
-                    C_graphs_by_tree_node[tree_node].add_node(graph_node_id)
-    # apply heuristic algorithm for pruning out LGs from C
-    print("[+] Building linkage group graphs")
-    LG_graphs_by_tree_node = {}
-    for tree_node in C_graphs_by_tree_node:
-        LG_graphs_by_tree_node[tree_node] = nx.DiGraph()
-        # iterate over nodes in C graph, make a directed edge for each node's greatest size connection
-        # edges are only made from a smaller to a greater sized node, or between equally sized nodes
-        # if there is a tie in size, then multiple edges will be made
-        for graph_node_id in C_graphs_by_tree_node[tree_node]:
-            neighbours = list(C_graphs_by_tree_node[tree_node].neighbors(graph_node_id))
-            biggest_neighbour = []
-            if len(neighbours) > 0:
-                for neighbour in neighbours:
-                    if len(linked_marker_set_IDs[neighbour]) >= len(linked_marker_set_IDs[graph_node_id]):
-                        if len(biggest_neighbour) == 0:
-                            biggest_neighbour = [neighbour]
-                        else:
-                            if len(linked_marker_set_IDs[neighbour]) == len(linked_marker_set_IDs[biggest_neighbour[0]]):
-                                biggest_neighbour.append(neighbour)
-                            elif len(linked_marker_set_IDs[neighbour]) > len(linked_marker_set_IDs[biggest_neighbour[0]]):
-                                biggest_neighbour = [neighbour]
-                if len(biggest_neighbour) > 0:
-                    for big_neighbour in biggest_neighbour:
-                        LG_graphs_by_tree_node[tree_node].add_edge(graph_node_id, big_neighbour)
-                else:
-                    LG_graphs_by_tree_node[tree_node].add_node(graph_node_id)
-            else:
-                LG_graphs_by_tree_node[tree_node].add_node(graph_node_id)
-        # use destinations in the graph to assign nodes to LGs
-        # a destination is either a node with no successors/neighbors of greater size
-        LG_store[tree_node][frozenset(['unassignables'])] = []
-        destinations = []
-        for ID in range(1, len(linked_marker_sets)+1):
-            if len(linked_marker_set_IDs[ID]) > 1: # here make a rule that destinations must be 
-                is_destination = True
-                for descendant in nx.descendants(LG_graphs_by_tree_node[tree_node], ID):
-                    if len(linked_marker_set_IDs[descendant]) > len(linked_marker_set_IDs[ID]):
-                        is_destination = False
-                if is_destination == True:
-                    if len(destinations) == 0:
-                        destinations.append([ID])
-                    else:
-                        in_cycle = False
-                        for descendant in nx.descendants(LG_graphs_by_tree_node[tree_node], ID):
-                            for destination in destinations:
-                                if descendant in destination:
-                                    destination.append(ID)
-                                    in_cycle = True
-                        if in_cycle == False:
-                            destinations.append([ID])
-        # destinations (terminals and cycles) have now been defined
-        # loop through IDs to find their destination
-        # if they are a destination then assign them to that LG
-        # if they have 1 destination then they should be assigned to that destination's LG
-        # if they have >1 destinations then they cannot be assigned
-        for destination in destinations:
-            LG_store[tree_node][frozenset(destination)] = []
-        for ID in range(1, len(linked_marker_sets)+1):
-            is_destination = False
-            for destination in LG_store[tree_node]:
-                if ID in destination:
-                    LG_store[tree_node][destination].append(ID)
-                    is_destination = True
-            if is_destination == False:
-                descendants = nx.descendants(LG_graphs_by_tree_node[tree_node], ID)
-                destination_of_ID = set()
-                for descendant in descendants:
-                    for destination in LG_store[tree_node]:
-                        if descendant in destination:
-                            destination_of_ID.add(destination)
-                if len(destination_of_ID) == 1:
-                    for dest in destination_of_ID:
-                        LG_store[tree_node][dest].append(ID)
-                else:
-                    LG_store[tree_node][frozenset(['unassignables'])].append(ID)
-    # all done, return the stored LGs
-    return LG_store
-
-def analyse_chromosomal_units(syngraph, LG_store, linked_marker_set_IDs, mrca):
-    ''''
-    input : LG store, linked_marker_set_IDs, a target node for defining units
-    output : tsv for each species - chrom - which unit(s) they contain, plus information about units
-    '''
-    print("[+] Using the following internal node to define chromosomal units \n{}\n".format(mrca.get_ascii(show_internal=True)))
-    # extract units using specified mrca
-    chromosomal_units = {} # key is unit name, e.g. unit_1 ordered by size, value is list of markers
-    temp_units = {} # these will be stored here with the wrong names
-    temp_unit_names = 0
-    for LG in LG_store[mrca.name]:
-        if LG != frozenset(['unassignables']):
-            temp_unit_names += 1
-            temp_units[str(temp_unit_names)] = []
-            for ID in LG_store[mrca.name][LG]:
-                for marker in linked_marker_set_IDs[ID]:
-                    temp_units[str(temp_unit_names)].append(marker)
-    # now give names based on length and store in chromosomal_units
-    chromosomal_units_names = 0
-    for unit in sorted(temp_units, key=lambda unit: len(temp_units[unit]), reverse=True):
-        chromosomal_units_names += 1
-        chromosomal_units["unit_"+str(chromosomal_units_names)] = temp_units[unit]
-    print("[=] Estimated {} ancestral chromosome units".format(chromosomal_units_names))
-    print("[=] {} markers could not be assigned to any unit".format(len(LG_store[mrca.name][frozenset(['unassignables'])])))
-    print("[+] Calculating and then outputting how extant chromosomes relate to ancestral units\n")
-    for tree_node in LG_store:
-        if tree_node in syngraph.graph['taxa']:
-            temporary_results_dict = collections.defaultdict(lambda: collections.defaultdict(int))
-            for LG in LG_store[tree_node]:
-                for ID in LG_store[tree_node][LG]:
-                    for marker in linked_marker_set_IDs[ID]:
-                        for unit in chromosomal_units:
-                            if marker in chromosomal_units[unit]:
-                                #print("{}\t{}\t{}\t{}".format(tree_node, marker, syngraph.nodes[marker]['seqs_by_taxon'][tree_node], unit))
-                                taxon_chromo = syngraph.nodes[marker]['seqs_by_taxon'][tree_node]
-                                temporary_results_dict[taxon_chromo][unit] += 1
-            for chromo in sorted(temporary_results_dict):
-                results_string = "NA"
-                for unit in sorted(temporary_results_dict[chromo]):
-                    percent_found = round(((temporary_results_dict[chromo][unit] / len(chromosomal_units[unit])) * 100), 3)
-                    if results_string == "NA":
-                        results_string = str(percent_found) + "%_" + unit
-                    else:
-                        results_string = results_string + "\t" + str(percent_found) + "%_" + unit
-                print("{}\t{}\t{}".format(tree_node, chromo, results_string))
-
-
 def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
 
@@ -406,27 +212,29 @@ def compact_synteny(syngraph, ref_taxon, query_taxon, mode):
                         querychrom2index[frozenset(querychrom)].add(frozenset(refchrom))
     return querychrom2index
 
+def check_for_fusions(instance_of_synteny, fusions_so_far):
+    fusions = fusions_so_far
+    new_fusions = 0
+    for combo in itertools.combinations(instance_of_synteny.keys(), 2):
+        if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
+            instance_of_synteny[combo[0]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
+            instance_of_synteny[combo[1]] = set()
+            fusions += 1
+            new_fusions += 1
+    if new_fusions > 0:
+        return check_for_fusions(instance_of_synteny, fusions)
+    else:
+        return(fusions)
+
+def check_for_fissions(instance_of_synteny, fissions_so_far):
+    fissions = fissions_so_far
+    for querychrom in instance_of_synteny:
+        indices = len(instance_of_synteny[querychrom])
+        if indices > 1:
+            fissions += (indices - 1)
+    return(fissions)
+
 def ffsd(instance_of_synteny):
-    def check_for_fusions(instance_of_synteny, fusions_so_far):
-        fusions = fusions_so_far
-        new_fusions = 0
-        for combo in itertools.combinations(instance_of_synteny.keys(), 2):
-            if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
-                instance_of_synteny[combo[0]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
-                instance_of_synteny[combo[1]] = set()
-                fusions += 1
-                new_fusions += 1
-        if new_fusions > 0:
-            return check_for_fusions(instance_of_synteny, fusions)
-        else:
-            return(fusions)
-    def check_for_fissions(instance_of_synteny, fissions_so_far):
-        fissions = fissions_so_far
-        for querychrom in instance_of_synteny:
-            indices = len(instance_of_synteny[querychrom])
-            if indices > 1:
-                fissions += (indices - 1)
-        return(fissions)
     total_fusions = check_for_fusions(instance_of_synteny, 0)
     total_fissions = check_for_fissions(instance_of_synteny, 0)
     return(total_fusions, total_fissions)
@@ -456,9 +264,9 @@ def get_LMSs(syngraph, list_of_taxa, minimum):
                 Unassignable_markers.add(graph_node_id)
     return(Filtered_LinkedMarkerSets, Unassignable_markers)
 
-def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, connected_components):
+def generate_connected_components(ios_1, ios_2, ios_3, iteration, connected_components):
     if iteration == 0:
-        for ios in ios_ref, ios_query, ios_query2:
+        for ios in ios_1, ios_2, ios_3:
             for chrom in ios.values():
                 connected_components.append(chrom)
     another_iteration = False
@@ -468,14 +276,14 @@ def generate_connected_components(ios_ref, ios_query, ios_query2, iteration, con
             connected_components[combo[1]] = set()
             another_iteration = True
     if another_iteration == True:
-        return generate_connected_components(ios_ref, ios_query, ios_query2, iteration+1, connected_components)
+        return generate_connected_components(ios_1, ios_2, ios_3, iteration+1, connected_components)
     else:
         connected_components = [component for component in connected_components if component != set()]
         return connected_components
 
-# function is from https://stackoverflow.com/questions/19368375/set-partitions-in-python
-# this will exhaustively generate all possible partitions
 def partition(cc):
+    # function is from https://stackoverflow.com/questions/19368375/set-partitions-in-python
+    # this will exhaustively generate all possible partitions
     if len(cc) == 1:
         yield [cc]
         return
@@ -485,10 +293,10 @@ def partition(cc):
             yield smaller[:n] + [[first] + subset]  + smaller[n+1:] 
         yield [[first]] + smaller
 
-def exhaustive_solver(connected_components, ios_ref, ios_query, ios_query2):
+def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates):
     # if there are no 'tangles' then there are no events
     if max([len(connected_component) for connected_component in connected_components]) == 1:
-        return 0, 0, connected_components
+        return connected_components
     # else, generate all possible candidate genomes from the connected components
     else:
         possible_medians = []
@@ -504,33 +312,37 @@ def exhaustive_solver(connected_components, ios_ref, ios_query, ios_query2):
                     a_possible_median.append(sets)
             possible_medians.append(a_possible_median)
         # now evaluate candidate genomes
-        # will change this once I have a likelihood function
-        best_fissions = float("inf")
-        best_fusions = float("inf")
-        best_total = float("inf")
+        best_likelihood = 0
         best_genome = []
+        fis_rate = rates[0]
+        fus_rate = rates[1]
         for possible_median in possible_medians:
-            total_fissions = 0
-            total_fusions = 0
-            for ios in ios_ref, ios_query, ios_query2:
+            likelihood = 1
+            for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
                 ios = [chrom for chrom in ios.values()]
                 fusions, fissions = ffsd(compact_synteny("null", ios, possible_median, "index_index"))
-                total_fissions += fissions
-                total_fusions += fusions
-            if total_fusions + total_fissions < best_total:
-                best_fissions = total_fissions
-                best_fusions = total_fusions
-                best_total = total_fusions + total_fissions
+                if branch_lengths["up"][i] == 0:
+                    likelihood *= stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i])
+                    likelihood *= stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i])
+                elif branch_lengths["down"][i] == 0:
+                    likelihood *= stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i])
+                    likelihood *= stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i])           
+                else:
+                    likelihood *= (stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i]))      
+                    likelihood *= (stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i]))
+            if likelihood > best_likelihood:
+                best_likelihood = likelihood
                 best_genome = possible_median      
-        return best_fissions, best_fusions, best_genome
+        return best_genome
 
-def heuristic_solver(connected_component, ios_ref, ios_query, ios_query2):
+def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, rates):
+    # this function needs some work...
     print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
     print("[+] Searching genome land ...")
-    best_fissions = float("inf")
-    best_fusions = float("inf")
-    best_total = float("inf")
+    best_likelihood = 0
     best_genome = []
+    fis_rate = rates[0]
+    fus_rate = rates[1]
     def permute_genome_by_fusion(genome):
         if len(genome) == 1:
             return genome
@@ -560,7 +372,7 @@ def heuristic_solver(connected_component, ios_ref, ios_query, ios_query2):
             temp_genome.append(fission_product_1)
             temp_genome.append(fission_product_2)
             return temp_genome
-    for starting_genome in ios_ref, ios_query, ios_query2:
+    for starting_genome in ios_1, ios_2, ios_3:
         # five random walk rounds
         # each starts from the previous round's best point
         # the length of the walk is reduced each round
@@ -571,36 +383,42 @@ def heuristic_solver(connected_component, ios_ref, ios_query, ios_query2):
             for iteration in range(0, rw_iterations):
                 rw_genome = copy.deepcopy(starting_genome)
                 for step in range(0, rw_length):
-                    coin_flip = random.sample(["fusion", "fission"], 1)[0]
-                    if coin_flip == "fusion":
-                        rw_genome = permute_genome_by_fusion(rw_genome)
-                    elif coin_flip == "fission":
-                        rw_genome = permute_genome_by_fission(rw_genome)
-                total_fusions = 0
-                total_fissions = 0
-                # will change this once I have a likelihood function
-                for ios in ios_ref, ios_query, ios_query2:
+                    if step == 0:
+                        pass
+                    else:
+                        coin_flip = random.sample(["fusion", "fission"], 1)[0]
+                        if coin_flip == "fusion":
+                            rw_genome = permute_genome_by_fusion(rw_genome)
+                        elif coin_flip == "fission":
+                            rw_genome = permute_genome_by_fission(rw_genome)
+                # evaluate permuted genomes
+                likelihood = 1
+                for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
                     ios = [chrom for chrom in ios.values()]
                     fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
-                    total_fusions += fusions
-                    total_fissions += fissions
-                if total_fusions + total_fissions < best_total:
-                    best_fissions = total_fissions
-                    best_fusions = total_fusions
-                    best_total = total_fusions + total_fissions
-                    best_genome = rw_genome
-                    print(best_total, len(best_genome))                  
+                    if branch_lengths["up"][i] == 0:
+                        likelihood *= stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i])
+                        likelihood *= stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i])
+                    elif branch_lengths["down"][i] == 0:
+                        likelihood *= stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i])
+                        likelihood *= stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i])           
+                    else:
+                        likelihood *= (stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i]))      
+                        likelihood *= (stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i])) 
+                if likelihood > best_likelihood:
+                    best_likelihood = likelihood
+                    best_genome = rw_genome                 
             starting_genome = best_genome        
-    return best_fissions, best_fusions, best_genome
+    return best_genome
 
-def write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers):
+def write_in_unassigned(tree_node, syngraph, taxa, LMSs, unassignable_markers):
     # if there are bugs in this function then this would be a big problem
     # how will this function behave when there are multiple traversals?
     reassigned_markers = 0
     LMS_sbt_chrom = {}
     for LMS in LMSs:
         l_sbt = set()
-        for taxon in ref_taxon, query_taxon, query2_taxon:
+        for taxon in taxa:
             if taxon in syngraph.nodes[list(LMSs[LMS])[0]]['seqs_by_taxon']:
                 l_sbt.add(syngraph.nodes[list(LMSs[LMS])[0]]['seqs_by_taxon'][taxon])
         l_chrom = syngraph.nodes[list(LMSs[LMS])[0]]['seqs_by_taxon'][tree_node]
@@ -608,7 +426,7 @@ def write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxo
     for unassignable in unassignable_markers:
         u_chroms = set()
         u_sbt = set()
-        for taxon in ref_taxon, query_taxon, query2_taxon:
+        for taxon in taxa:
             if taxon in syngraph.nodes[unassignable]['seqs_by_taxon']:
                 u_sbt.add(syngraph.nodes[unassignable]['seqs_by_taxon'][taxon])
         for l_sbt in LMS_sbt_chrom:
@@ -625,43 +443,37 @@ def write_in_unassigned(tree_node, syngraph, ref_taxon, query_taxon, query2_taxo
     print("[=] Assigned {} of the markers not within any LMS".format(reassigned_markers))
     return syngraph
 
-
-def median_genome(tree_node, input_syngraph, output_syngraph, ref_taxon, query_taxon, query2_taxon, minimum):
+def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengths, rates, minimum):
     # get LMSs >= minimum
     # LMSs < minimum are dealt with later and don't contribute to events
     # remaining LMSs represent a fissioned median genome
-    LMSs, unassignable_markers = get_LMSs(input_syngraph, [ref_taxon, query_taxon, query2_taxon], minimum)
+    LMSs, unassignable_markers = get_LMSs(input_syngraph, taxa, minimum)
     print("[=] Generated {} LMSs containing {} markers".format(len(LMSs.keys()), sum([len(LMSs[LMS]) for LMS in LMSs])))
     print("[=] A total of {} markers are not assigned to an LMS".format(len(unassignable_markers)))
     # given compact synteny of each extant genome to the fissioned median, generate connected components of LMSs
-    ios_ref = compact_synteny(input_syngraph, LMSs, ref_taxon, "LMS_syngraph")
-    ios_query = compact_synteny(input_syngraph, LMSs, query_taxon, "LMS_syngraph")
-    ios_query2 = compact_synteny(input_syngraph, LMSs, query2_taxon, "LMS_syngraph")
+    ios_1 = compact_synteny(input_syngraph, LMSs, taxa[0], "LMS_syngraph")
+    ios_2 = compact_synteny(input_syngraph, LMSs, taxa[1], "LMS_syngraph")
+    ios_3 = compact_synteny(input_syngraph, LMSs, taxa[2], "LMS_syngraph")
     connected_components = []
     solved_connected_components = []
-    total_fissions = 0
-    total_fusions = 0
-    connected_components = generate_connected_components(ios_ref, ios_query, ios_query2, 0, connected_components)
+    connected_components = generate_connected_components(ios_1, ios_2, ios_3, 0, connected_components)
     print("[=] Generated {} connected components".format(len(connected_components)))
     # now check whether, given the connected components, the best genome can be found exhaustively
     # and then call the appropriate solving function
     bell_numbers = [1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, 678570, 4213597]
-    if max([len(connected_component) for connected_component in connected_components]) > 12:
-        total_fissions, total_fusions, solved_connected_components = heuristic_solver(connected_components, ios_ref, ios_query, ios_query2)
+    if max([len(connected_component) for connected_component in connected_components]) > 9:
+        solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates)
     else:
         possible_medians = 1
         for connected_component in connected_components:
             possible_medians *= bell_numbers[len(connected_component)-1]
-        print(possible_medians)
-        if possible_medians > 4213597:
-            total_fissions, total_fusions, solved_connected_components = heuristic_solver(connected_components, ios_ref, ios_query, ios_query2)
+        #print(possible_medians)
+        if possible_medians > 50000:
+            solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates)
         else:
-            total_fissions, total_fusions, solved_connected_components = exhaustive_solver(connected_components, ios_ref, ios_query, ios_query2)
-    print("[=] Found a median genome with {} chromosomes that only requires:".format(len(solved_connected_components)))
-    print("[=]\t{}\tfissions".format(total_fissions))
-    print("[=]\t{}\tfusions".format(total_fusions))
+            solved_connected_components = exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates)
+    print("[=] Found a median genome with {} chromosomes".format(len(solved_connected_components)))
     # from solved_connected_components, add this new ancestral genome to a syngraph
-    # is this the best way to name chromosomes?
     output_syngraph.graph['taxa'].add(tree_node)
     new_chromosome = 1
     for chrom in solved_connected_components:
@@ -671,9 +483,8 @@ def median_genome(tree_node, input_syngraph, output_syngraph, ref_taxon, query_t
                 output_syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + str(new_chromosome)
         new_chromosome += 1
     # finally, write in LMSs/markers that were too small or missing from a taxon, but can be assigned by parismony
-    output_syngraph = write_in_unassigned(tree_node, input_syngraph, ref_taxon, query_taxon, query2_taxon, LMSs, unassignable_markers)
+    output_syngraph = write_in_unassigned(tree_node, input_syngraph, taxa, LMSs, unassignable_markers)
     return output_syngraph
-
 
 #############################################################################################
 #############################################################################################

@@ -1,11 +1,13 @@
 """
 
-Usage: syngraph ffsd -g <FILE> -t <NWK> [-m <INT> -o <STR> -h]
+Usage: syngraph ffsd -g <FILE> -t <NWK> -i [-m <INT> -r <STR> -o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>                       Syngraph file
     -t, --tree <NWK>                            Tree in Newick format
-    -m, --minimum <INT>                         The minimum number of markers for a synteny relationship [default: 5]
+    -i, --inference <STR>                       Inference method of choice, either parsimony or likelihood
+    -m, --minimum <INT>                         Minimum number of markers for a synteny relationship [default: 5]
+    -r, --rates <STR>                           Per branch length unit rates of fission and fusion, comma delimited [default: 1,1] 
     -o, --outprefix <STR>                       Outprefix [default: test]
     -h, --help                                  Show this screen.
 
@@ -16,6 +18,8 @@ from docopt import docopt
 import pathlib
 import ete3
 import copy
+import collections
+from scipy import stats
 from timeit import default_timer as timer
 from source import syngraph as sg
 
@@ -23,8 +27,10 @@ class ParameterObj():
     def __init__(self, args):
         self.syngraph = self._get_path(args['--syngraph'])
         self.tree = self._get_tree(args['--tree'])
+        self.inference = args['--inference']
         self.outprefix = args['--outprefix']
         self.minimum = int(args['--minimum'])
+        self.rates = [float(rate) for rate in args["--rates"].split(",")]
 
     def _get_path(self, infile):
         path = pathlib.Path(infile).resolve()
@@ -65,7 +71,7 @@ def main(run_params):
 
         # a function for getting the closest outgroup to a tree node
         # outgroup must be in 'available_taxa' and cannot be a descenant of the tree_node or the tree_nodes itself.
-        def get_closest_outgroup(tree, tree_node, child_1, child_2, available_taxa):
+        def get_closest_outgroup(tree, tree_node, available_taxa):
             closest_taxon_so_far = "null"
             closest_distance_so_far = float("inf")
             for some_tree_node in tree.search_nodes():
@@ -99,15 +105,22 @@ def main(run_params):
             if not tree_node.is_leaf() and not tree_node.is_root():
                 child_1 = tree_node.get_children()[0].name
                 child_2 = tree_node.get_children()[1].name
-                outgroup = get_closest_outgroup(parameterObj.tree, tree_node, child_1, child_2, available_taxa)
+                outgroup = get_closest_outgroup(parameterObj.tree, tree_node, available_taxa)
+                branch_lengths = collections.defaultdict(list)
+                for taxon in child_1, child_2, outgroup:
+                    up_distance, down_distance = get_branch_distances(parameterObj.tree, tree_node, taxon)
+                    branch_lengths["up"].append(up_distance)
+                    branch_lengths["down"].append(down_distance)
                 print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
-                traversal_0_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, child_1, child_2, outgroup, parameterObj.minimum)
+                print(branch_lengths["up"])
+                print(branch_lengths["down"])
+                traversal_0_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, [child_1, child_2, outgroup], branch_lengths, parameterObj.rates, parameterObj.minimum)
                 available_taxa.add(tree_node.name)
         print("[=] ========================================================================")
 
         # second traversal forms triplets from the two children and the parent, as we now have parents (internal nodes) from the first traversal
         # if a node is a child of the root then the triplet is formed from the node's two children and an outgroup, i.e. the other child of the root
-        # info is read from the first traversals syngraoh but a new syngraph is written to
+        # info is read from the first traversals syngraph but a new syngraph is written to
         print("[+] Starting second traversal ...")
         print("[+] ========================================================================")
         for tree_node in parameterObj.tree.traverse(strategy='postorder'):
@@ -115,27 +128,38 @@ def main(run_params):
                 child_1 = tree_node.get_children()[0].name
                 child_2 = tree_node.get_children()[1].name
                 if tree_node.up.is_root():
-                    outgroup = get_closest_outgroup(parameterObj.tree, tree_node, child_1, child_2, available_taxa)
-                    print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
-                    traversal_1_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_1_syngraph, child_1, child_2, outgroup, parameterObj.minimum)
+                    outgroup = get_closest_outgroup(parameterObj.tree, tree_node, available_taxa)
                 else:
-                    parent = tree_node.up.name
-                    print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, parent))
-                    traversal_1_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_1_syngraph, child_1, child_2, parent, parameterObj.minimum)
+                    outgroup = tree_node.up.name
+                branch_lengths = collections.defaultdict(list)
+                for taxon in child_1, child_2, outgroup:
+                    up_distance, down_distance = get_branch_distances(parameterObj.tree, tree_node, taxon)
+                    branch_lengths["up"].append(up_distance)
+                    branch_lengths["down"].append(down_distance)
+                print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
+                print(branch_lengths["up"])
+                print(branch_lengths["down"])                
+                traversal_1_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_1_syngraph, [child_1, child_2, outgroup], branch_lengths, parameterObj.rates, parameterObj.minimum)
         print("[=] ========================================================================")
 
         # evaluator should iterate from the children of the root to the leaves
-        print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions")
+        print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions\tLikelihood")
+        total_likelihood = 1
         for tree_node in parameterObj.tree.traverse(strategy='preorder'):
             if not tree_node.is_leaf() and not tree_node.is_root():
                 child_1 = tree_node.get_children()[0].name
                 child_2 = tree_node.get_children()[1].name
                 for child in child_1, child_2:
+                    likelihood = 1
                     parent_child_LMSs, unassignable_markers = sg.get_LMSs(traversal_1_syngraph, [tree_node.name, child], parameterObj.minimum)
                     parent_LMS_ios = sg.compact_synteny(traversal_1_syngraph, parent_child_LMSs, tree_node.name, "LMS_syngraph")
                     child_LMS_ios = sg.compact_synteny(traversal_1_syngraph, parent_child_LMSs, child, "LMS_syngraph")
                     fusions, fissions = sg.ffsd(sg.compact_synteny("null", [value for value in child_LMS_ios.values()], [value for value in parent_LMS_ios.values()], "index_index"))
-                    print("[=]\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions))
+                    likelihood *= stats.poisson.pmf(fissions, parameterObj.rates[0]*tree_node.get_distance(child))
+                    likelihood *= stats.poisson.pmf(fusions, parameterObj.rates[1]*tree_node.get_distance(child))
+                    total_likelihood *= likelihood
+                    print("[=]\t{}\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions, likelihood))
+        print(total_likelihood)
         print("[=] ========================================================================")
 
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
