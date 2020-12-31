@@ -4,10 +4,8 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
 
   [Modules]
     build               Build graph from orthology data (e.g. BUSCO *.full_table.tsv)
-    units               Infer ancestral chromosomal units for the graph
-    ffsd                Models fission and fusion over a tree, will eventually replace units [TBI]
+    ffsd                Models fission and fusion over a tree
     viz                 Visualise graph/data [TBI]
-    recon               Reconstruct ancestral syngraph given a tree [TBI]
     synulate            Simulate graphs [TBI]
     
   [Options]
@@ -39,14 +37,10 @@ def main():
         if args['<module>'] == 'build':
             import cli.build as build
             build.main(run_params)
-        elif args['<module>'] == 'units':
-            import cli.units as units
             units.main(run_params)
         elif args['<module>'] == 'ffsd':
             import cli.ffsd as ffsd
             ffsd.main(run_params)
-        elif args['<module>'] == 'recon':
-            import cli.recon as recon
             recon.main(run_params)
         elif args['<module>'] == 'viz':
             import cli.viz as viz

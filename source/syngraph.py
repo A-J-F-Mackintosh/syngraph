@@ -203,8 +203,11 @@ def compact_synteny(syngraph, ref_taxon, query_taxon, mode):
         for graph_node_id in syngraph.nodes():
             for LMS in ref_taxon:
                 if graph_node_id in ref_taxon[LMS]:
-                    querychrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].add(LMS)
+                    querychrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].add(LMS)                 
     elif mode == "index_index": # list of sets
+        # chroms have no names when the genome is represented as a list of sets
+        # as a result, I am using the content of chroms/sets as indices
+        # this 'works' but when debugging is ugly/confusing
         for querychrom in query_taxon:
             for index in querychrom:
                 for refchrom in ref_taxon:
@@ -213,30 +216,57 @@ def compact_synteny(syngraph, ref_taxon, query_taxon, mode):
     return querychrom2index
 
 def check_for_fusions(instance_of_synteny, fusions_so_far):
+    # nicer code, but slow
     fusions = fusions_so_far
     new_fusions = 0
     for combo in itertools.combinations(instance_of_synteny.keys(), 2):
         if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
             instance_of_synteny[combo[0]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
             instance_of_synteny[combo[1]] = set()
-            fusions += 1
             new_fusions += 1
     if new_fusions > 0:
+        fusions += new_fusions
         return check_for_fusions(instance_of_synteny, fusions)
     else:
-        return(fusions)
+        return instance_of_synteny, fusions
 
-def check_for_fissions(instance_of_synteny, fissions_so_far):
-    fissions = fissions_so_far
+def check_for_fusions_v2(instance_of_synteny, fusions_so_far):
+    # ugly code, but a little faster
+    new_fusions = 0
+    index_count = collections.defaultdict(int)
+    candidate_indices = set()
+    candidate_chroms = set()
+    for chrom in instance_of_synteny.values():
+        for index in chrom:
+            index_count[index] += 1
+            if index_count[index] == 2:
+                candidate_indices.add(index)
+    for chrom_name in instance_of_synteny.keys():
+        for index in candidate_indices:
+            if index in instance_of_synteny[chrom_name]:
+                candidate_chroms.add(chrom_name)
+    for combo in itertools.combinations(candidate_chroms, 2):
+        if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
+            instance_of_synteny[combo[0]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
+            instance_of_synteny[combo[1]] = set()
+            new_fusions += 1
+    if new_fusions > 0:
+        fusions_so_far += new_fusions
+        return check_for_fusions_v2(instance_of_synteny, fusions_so_far)
+    else:
+        return instance_of_synteny, fusions_so_far
+
+def check_for_fissions(instance_of_synteny):
+    fissions = 0
     for querychrom in instance_of_synteny:
         indices = len(instance_of_synteny[querychrom])
         if indices > 1:
             fissions += (indices - 1)
-    return(fissions)
+    return fissions
 
 def ffsd(instance_of_synteny):
-    total_fusions = check_for_fusions(instance_of_synteny, 0)
-    total_fissions = check_for_fissions(instance_of_synteny, 0)
+    instance_of_synteny, total_fusions = check_for_fusions_v2(instance_of_synteny, 0)
+    total_fissions = check_for_fissions(instance_of_synteny)
     return(total_fusions, total_fissions)
 
 def get_LMSs(syngraph, list_of_taxa, minimum):
@@ -247,7 +277,7 @@ def get_LMSs(syngraph, list_of_taxa, minimum):
         for taxon in list_of_taxa:
             if taxon in syngraph.nodes[graph_node_id]['seqs_by_taxon']:
                 target_seqs_by_taxon.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
-        # are seqs_by_taxon unique to each taxon? If not the above will not work.
+        # are seqs_by_taxon unique to each taxon? If not the above will not work
         target_seqs_by_taxon = frozenset(list(target_seqs_by_taxon))
         if len(target_seqs_by_taxon) == len(list_of_taxa):
             LinkedMarkerSets[target_seqs_by_taxon].add(graph_node_id)
@@ -332,7 +362,7 @@ def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths,
                     likelihood *= (stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i]))
             if likelihood > best_likelihood:
                 best_likelihood = likelihood
-                best_genome = possible_median      
+                best_genome = possible_median    
         return best_genome
 
 def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, rates):

@@ -1,6 +1,6 @@
 """
 
-Usage: syngraph ffsd -g <FILE> -t <NWK> -i [-m <INT> -r <STR> -o <STR> -h]
+Usage: syngraph ffsd -g <FILE> -t <NWK> -i <STR> [-m <INT> -r <STR> -o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>                       Syngraph file
@@ -9,7 +9,7 @@ Usage: syngraph ffsd -g <FILE> -t <NWK> -i [-m <INT> -r <STR> -o <STR> -h]
     -m, --minimum <INT>                         Minimum number of markers for a synteny relationship [default: 5]
     -r, --rates <STR>                           Per branch length unit rates of fission and fusion, comma delimited [default: 1,1] 
     -o, --outprefix <STR>                       Outprefix [default: test]
-    -h, --help                                  Show this screen.
+    -h, --help                                  Show this message
 
 """
 
@@ -27,7 +27,7 @@ class ParameterObj():
     def __init__(self, args):
         self.syngraph = self._get_path(args['--syngraph'])
         self.tree = self._get_tree(args['--tree'])
-        self.inference = args['--inference']
+        self.inference = self._get_inference_method(args['--inference'])
         self.outprefix = args['--outprefix']
         self.minimum = int(args['--minimum'])
         self.rates = [float(rate) for rate in args["--rates"].split(",")]
@@ -45,6 +45,11 @@ class ParameterObj():
                 node.name = "n%s" % idx
         return tree
 
+    def _get_inference_method(self, inference_string):
+        if not inference_string == "parsimony" and not inference_string == "likelihood":
+            sys.exit("[X] Inference method not supported, please choose from parsimony/likelihood")
+        return inference_string
+
 def main(run_params):
     try:
         main_time = timer()
@@ -60,7 +65,6 @@ def main(run_params):
 
         #### TO DO LIST AND QUESTIONS
         ####
-        #### For each triplet, pre-calculate from-median probs of fis/fus given branch length and direction
         #### Should the second traversal be recursive?
         #### How easy would including RTs be?
         #### Could adding in unassignables cause problems in later traversals?
@@ -91,7 +95,7 @@ def main(run_params):
             down_distance = mrca.get_distance(tree_node_B)
             return up_distance, down_distance
 
-        # define which taxa are extant and so can be used as outgroups from the start
+        # define which taxa are extant and so can be sampled from the start
         available_taxa = set()
         for leaf in parameterObj.tree.get_leaves():
             available_taxa.add(leaf.name)
