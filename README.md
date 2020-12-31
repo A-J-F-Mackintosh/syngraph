@@ -1,5 +1,5 @@
 # Syngraph
-Analysis toolkit for evolutionary linkage group analyses of genome assemblies 
+Toolkit for evolutionary analyses of linkage groups  
 
 # Dependencies
 Best addressed via [conda](https://docs.conda.io/en/latest/miniconda.html)

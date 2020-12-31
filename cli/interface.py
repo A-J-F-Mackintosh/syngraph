@@ -37,11 +37,9 @@ def main():
         if args['<module>'] == 'build':
             import cli.build as build
             build.main(run_params)
-            units.main(run_params)
         elif args['<module>'] == 'ffsd':
             import cli.ffsd as ffsd
             ffsd.main(run_params)
-            recon.main(run_params)
         elif args['<module>'] == 'viz':
             import cli.viz as viz
             viz.main(run_params)
