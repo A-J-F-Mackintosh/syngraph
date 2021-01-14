@@ -323,7 +323,20 @@ def partition(cc):
             yield smaller[:n] + [[first] + subset]  + smaller[n+1:] 
         yield [[first]] + smaller
 
-def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates):
+def evaluate_likelihood(fissions, fusions, branch_length_up, branch_length_down, fis_rate, fus_rate):
+    likelihood = 1
+    if branch_length_up == 0:
+        likelihood *= stats.poisson.pmf(fissions, fis_rate*branch_length_down)
+        likelihood *= stats.poisson.pmf(fusions, fus_rate*branch_length_down)
+    elif branch_length_down == 0:
+        likelihood *= stats.poisson.pmf(fusions, fis_rate*branch_length_up)
+        likelihood *= stats.poisson.pmf(fissions, fus_rate*branch_length_up)           
+    else:
+        likelihood *= (stats.poisson.pmf(fissions, fis_rate*branch_length_down) + stats.poisson.pmf(fissions, fus_rate*branch_length_up))      
+        likelihood *= (stats.poisson.pmf(fusions, fus_rate*branch_length_down) + stats.poisson.pmf(fusions, fis_rate*branch_length_up))
+    return likelihood
+
+def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, inference):
     # if there are no 'tangles' then there are no events
     if max([len(connected_component) for connected_component in connected_components]) == 1:
         return connected_components
@@ -342,37 +355,47 @@ def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths,
                     a_possible_median.append(sets)
             possible_medians.append(a_possible_median)
         # now evaluate candidate genomes
-        best_likelihood = 0
+        if inference == "likelihood":
+            best_likelihood = 0
+            fis_rate = rates[0]
+            fus_rate = rates[1]
+        elif inference == "parsimony":
+            best_total = float("inf")
         best_genome = []
-        fis_rate = rates[0]
-        fus_rate = rates[1]
         for possible_median in possible_medians:
-            likelihood = 1
-            for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
-                ios = [chrom for chrom in ios.values()]
-                fusions, fissions = ffsd(compact_synteny("null", ios, possible_median, "index_index"))
-                if branch_lengths["up"][i] == 0:
-                    likelihood *= stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i])
-                    likelihood *= stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i])
-                elif branch_lengths["down"][i] == 0:
-                    likelihood *= stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i])
-                    likelihood *= stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i])           
-                else:
-                    likelihood *= (stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i]))      
-                    likelihood *= (stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i]))
-            if likelihood > best_likelihood:
-                best_likelihood = likelihood
-                best_genome = possible_median    
+            if inference == "likelihood":
+                likelihood = 1
+                for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
+                    ios = [chrom for chrom in ios.values()]
+                    fusions, fissions = ffsd(compact_synteny("null", ios, possible_median, "index_index"))
+                    likelihood *= evaluate_likelihood(fissions, fusions, branch_lengths["up"][i], branch_lengths["down"][i], fis_rate, fus_rate) 
+                if likelihood > best_likelihood:
+                    best_likelihood = likelihood
+                    best_genome = possible_median
+            elif inference == "parsimony":
+                total_fissions = 0
+                total_fusions = 0
+                for ios in ios_1, ios_2, ios_3:
+                    ios = [chrom for chrom in ios.values()]
+                    fusions, fissions = ffsd(compact_synteny("null", ios, possible_median, "index_index"))
+                    total_fissions += fissions
+                    total_fusions += fusions
+                if total_fissions + total_fusions < best_total:
+                    best_total = total_fissions + total_fusions
+                    best_genome = possible_median  
         return best_genome
 
-def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, rates):
+def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, rates, inference):
     # this function needs some work...
     print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
     print("[+] Searching genome land ...")
-    best_likelihood = 0
+    if inference == "likelihood":
+        best_likelihood = 0
+        fis_rate = rates[0]
+        fus_rate = rates[1]
+    elif inference == "parsimony":
+        best_total = float("inf")
     best_genome = []
-    fis_rate = rates[0]
-    fus_rate = rates[1]
     def permute_genome_by_fusion(genome):
         if len(genome) == 1:
             return genome
@@ -403,6 +426,12 @@ def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, r
             temp_genome.append(fission_product_2)
             return temp_genome
     for starting_genome in ios_1, ios_2, ios_3:
+        """
+        best_run_genome
+        best_rune_L
+        best_run_total
+        etc
+        """
         # five random walk rounds
         # each starts from the previous round's best point
         # the length of the walk is reduced each round
@@ -422,22 +451,26 @@ def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, r
                         elif coin_flip == "fission":
                             rw_genome = permute_genome_by_fission(rw_genome)
                 # evaluate permuted genomes
-                likelihood = 1
-                for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
-                    ios = [chrom for chrom in ios.values()]
-                    fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
-                    if branch_lengths["up"][i] == 0:
-                        likelihood *= stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i])
-                        likelihood *= stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i])
-                    elif branch_lengths["down"][i] == 0:
-                        likelihood *= stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i])
-                        likelihood *= stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i])           
-                    else:
-                        likelihood *= (stats.poisson.pmf(fissions, fis_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fissions, fus_rate*branch_lengths["up"][i]))      
-                        likelihood *= (stats.poisson.pmf(fusions, fus_rate*branch_lengths["down"][i]) + stats.poisson.pmf(fusions, fis_rate*branch_lengths["up"][i])) 
-                if likelihood > best_likelihood:
-                    best_likelihood = likelihood
-                    best_genome = rw_genome                 
+                if inference == "likelihood":
+                    likelihood = 1
+                    for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
+                        ios = [chrom for chrom in ios.values()]
+                        fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
+                        likelihood *= evaluate_likelihood(fissions, fusions, branch_lengths["up"][i], branch_lengths["down"][i], fis_rate, fus_rate) 
+                    if likelihood > best_likelihood:
+                        best_likelihood = likelihood
+                        best_genome = rw_genome
+                elif inference == "parsimony":
+                    total_fissions = 0
+                    total_fusions = 0
+                    for ios in ios_1, ios_2, ios_3:
+                        ios = [chrom for chrom in ios.values()]
+                        fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
+                        total_fissions += fissions
+                        total_fusions += fusions
+                    if total_fissions + total_fusions < best_total:
+                        best_total = total_fissions + total_fusions
+                        best_genome = rw_genome
             starting_genome = best_genome        
     return best_genome
 
@@ -473,7 +506,7 @@ def write_in_unassigned(tree_node, syngraph, taxa, LMSs, unassignable_markers):
     print("[=] Assigned {} of the markers not within any LMS".format(reassigned_markers))
     return syngraph
 
-def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengths, rates, minimum):
+def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengths, rates, minimum, inference):
     # get LMSs >= minimum
     # LMSs < minimum are dealt with later and don't contribute to events
     # remaining LMSs represent a fissioned median genome
@@ -492,16 +525,15 @@ def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengt
     # and then call the appropriate solving function
     bell_numbers = [1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, 678570, 4213597]
     if max([len(connected_component) for connected_component in connected_components]) > 9:
-        solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates)
+        solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, inference)
     else:
         possible_medians = 1
         for connected_component in connected_components:
             possible_medians *= bell_numbers[len(connected_component)-1]
-        #print(possible_medians)
         if possible_medians > 50000:
-            solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates)
+            solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, inference)
         else:
-            solved_connected_components = exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates)
+            solved_connected_components = exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, inference)
     print("[=] Found a median genome with {} chromosomes".format(len(solved_connected_components)))
     # from solved_connected_components, add this new ancestral genome to a syngraph
     output_syngraph.graph['taxa'].add(tree_node)

@@ -5,7 +5,7 @@ Usage: syngraph ffsd -g <FILE> -t <NWK> -i <STR> [-m <INT> -r <STR> -o <STR> -h]
   [Options]
     -g, --syngraph <FILE>                       Syngraph file
     -t, --tree <NWK>                            Tree in Newick format
-    -i, --inference <STR>                       Inference method of choice, either parsimony or likelihood
+    -i, --inference <STR>                       Inference method, either parsimony or likelihood
     -m, --minimum <INT>                         Minimum number of markers for a synteny relationship [default: 5]
     -r, --rates <STR>                           Per branch length unit rates of fission and fusion, comma delimited [default: 1,1] 
     -o, --outprefix <STR>                       Outprefix [default: test]
@@ -116,9 +116,7 @@ def main(run_params):
                     branch_lengths["up"].append(up_distance)
                     branch_lengths["down"].append(down_distance)
                 print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
-                print(branch_lengths["up"])
-                print(branch_lengths["down"])
-                traversal_0_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, [child_1, child_2, outgroup], branch_lengths, parameterObj.rates, parameterObj.minimum)
+                traversal_0_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, [child_1, child_2, outgroup], branch_lengths, parameterObj.rates, parameterObj.minimum, parameterObj.inference)
                 available_taxa.add(tree_node.name)
         print("[=] ========================================================================")
 
@@ -140,10 +138,8 @@ def main(run_params):
                     up_distance, down_distance = get_branch_distances(parameterObj.tree, tree_node, taxon)
                     branch_lengths["up"].append(up_distance)
                     branch_lengths["down"].append(down_distance)
-                print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
-                print(branch_lengths["up"])
-                print(branch_lengths["down"])                
-                traversal_1_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_1_syngraph, [child_1, child_2, outgroup], branch_lengths, parameterObj.rates, parameterObj.minimum)
+                print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))                
+                traversal_1_syngraph = sg.median_genome(tree_node.name, traversal_0_syngraph, traversal_1_syngraph, [child_1, child_2, outgroup], branch_lengths, parameterObj.rates, parameterObj.minimum, parameterObj.inference)
         print("[=] ========================================================================")
 
         # evaluator should iterate from the children of the root to the leaves
@@ -163,7 +159,7 @@ def main(run_params):
                     likelihood *= stats.poisson.pmf(fusions, parameterObj.rates[1]*tree_node.get_distance(child))
                     total_likelihood *= likelihood
                     print("[=]\t{}\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions, likelihood))
-        print(total_likelihood)
+        print("[=] Total likelihood:\t{}".format(total_likelihood))
         print("[=] ========================================================================")
 
         print("[*] Total runtime: %.3fs" % (timer() - main_time))

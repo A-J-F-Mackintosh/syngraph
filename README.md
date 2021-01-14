@@ -36,5 +36,9 @@ syngraph build -d directory_of_tsv_files -o test
 
 ## Model fissions and fusions over a tree
 ```
+# using maximum parsimony
+syngraph ffsd -g test.pickle -t newick.txt -i parsimony
+
+# using maximum likelihood
 syngraph ffsd -g test.pickle -t newick.txt -i likelihood -r 0.1,0.1
 ```
