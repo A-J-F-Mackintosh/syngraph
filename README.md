@@ -25,7 +25,7 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
 
   [Dependencies] 
     ------------------------------------------------------------------------------
-    | $ conda install -c conda-forge networkx pandas docopt tqdm ete3 pygraphviz |
+    | $ conda install -c conda-forge networkx pandas docopt tqdm ete3 pygraphviz nlopt |
     ------------------------------------------------------------------------------
 ```
 
@@ -40,5 +40,5 @@ syngraph build -d directory_of_tsv_files -o test
 syngraph ffsd -g test.pickle -t newick.txt -i parsimony
 
 # using maximum likelihood
-syngraph ffsd -g test.pickle -t newick.txt -i likelihood -r 0.1,0.1
+syngraph ffsd -g test.pickle -t newick.txt -i likelihood
 ```

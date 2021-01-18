@@ -553,13 +553,7 @@ def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengt
 #############################################################################################
 
 class Syngraph(nx.Graph):
-    '''
-    [ToDo]
-    - write documentation for Syngraph about which data is stored where
-    - create test-dataset 'butterfly_hard': with P. napi
-    - create test-dataset 'mammals' : chromosomal BUSCOs (10: cow, possum, rat, mouse, human, chimps...)
-    
-    '''
+
     def __init__(self, name='', **attr):
         nx.Graph.__init__(self, name=name, taxa=set(), **attr)
         
