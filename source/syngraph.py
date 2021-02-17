@@ -125,71 +125,71 @@ def load_markerObjs(parameterObj):
                     print("[-]\t%s: %s [%s...]" % (locus_type, len(locus_by_type_by_taxon[taxon][locus_type]), ",".join(list(locus_by_type_by_taxon[taxon][locus_type])[0:3])))
         return markerObjs
 
-def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon_node should be a dict, with keys as taxon and states as sets
-    states_by_tree_node = {}
-    for tree_node in tree.traverse(strategy='postorder'):
-        if tree_node.name in states_by_taxon:
-            states_by_tree_node[tree_node.name] = states_by_taxon[tree_node.name]
-        elif not tree_node.is_leaf():
-            intersection = set.intersection(*[states_by_tree_node.get(child_node.name, {False}) for child_node in tree_node.get_children()])
-            if len(intersection) >= number_of_states:
-                states_by_tree_node[tree_node.name] = intersection
-            else:
-                states_by_tree_node[tree_node.name] = set.union(
-                    *[states_by_tree_node.get(child_node.name, {False}) for child_node in tree_node.get_children()])
-        else:
-            pass
-    for tree_node in tree.traverse(strategy='levelorder'):
-        if not tree_node.is_root():
-            parent_tree_node = tree_node.up
-            intersection = states_by_tree_node.get(parent_tree_node.name, {False}).intersection(states_by_tree_node.get(tree_node.name, {False}))
-            if len(intersection) >= number_of_states:
-                states_by_tree_node[tree_node.name] = intersection
-    return(states_by_tree_node)
+# def fitch(states_by_taxon, number_of_states, tree): # states_by_taxon_node should be a dict, with keys as taxon and states as sets
+#     states_by_tree_node = {}
+#     for tree_node in tree.traverse(strategy='postorder'):
+#         if tree_node.name in states_by_taxon:
+#             states_by_tree_node[tree_node.name] = states_by_taxon[tree_node.name]
+#         elif not tree_node.is_leaf():
+#             intersection = set.intersection(*[states_by_tree_node.get(child_node.name, {False}) for child_node in tree_node.get_children()])
+#             if len(intersection) >= number_of_states:
+#                 states_by_tree_node[tree_node.name] = intersection
+#             else:
+#                 states_by_tree_node[tree_node.name] = set.union(
+#                     *[states_by_tree_node.get(child_node.name, {False}) for child_node in tree_node.get_children()])
+#         else:
+#             pass
+#     for tree_node in tree.traverse(strategy='levelorder'):
+#         if not tree_node.is_root():
+#             parent_tree_node = tree_node.up
+#             intersection = states_by_tree_node.get(parent_tree_node.name, {False}).intersection(states_by_tree_node.get(tree_node.name, {False}))
+#             if len(intersection) >= number_of_states:
+#                 states_by_tree_node[tree_node.name] = intersection
+#     return(states_by_tree_node)
 
-def reconstruct_syngraphs_by_tree_node(syngraph, tree, algorithm='fitch'):
-    '''
-    - input: syngraph, tree
-    - output: novel graphs with fitch edges for each internal tree node
-    '''
-    if algorithm == 'fitch':
-        edges_by_tree_node_by_graph_node = collections.defaultdict(dict) # nested dict, graph_node --> taxon --> edges
-        edges_by_tree_node = collections.defaultdict(list)
-        taxa_by_tree_node = collections.defaultdict(set)
-        for graph_node_id in syngraph.nodes:
-            edge_sets_by_taxon = syngraph.get_target_edge_sets_by_taxon(graph_node_id)
-            #print('edge_sets_by_taxon', edge_sets_by_taxon)
-            edges_by_tree_node_by_graph_node[graph_node_id] = fitch(edge_sets_by_taxon, 2, tree)
-        for graph_node_id, _edges_by_tree_node in edges_by_tree_node_by_graph_node.items():
-            for tree_node, edges in _edges_by_tree_node.items():
-                #print("tree_node", tree_node)
-                #print("edges", edges)
-                for (u, v) in edges:
-                    taxa_under_node = set([node.name for node in (tree&tree_node).iter_leaves()])
-                    taxa_by_tree_node[tree_node].update(taxa_under_node)
-                    edge_taxa = []
-                    for taxon in taxa_under_node:
-                        if frozenset([u, v]) in _edges_by_tree_node[taxon]:
-                            edge_taxa.append(taxon)
-                    edges_by_tree_node[tree_node].append((u, v, {'taxa': edge_taxa}))
-        syngraph_by_tree_node = {}
-        for tree_node, edges in edges_by_tree_node.items():
-            syngraph_by_tree_node[tree_node] = Syngraph()
-            syngraph_by_tree_node[tree_node].from_edges(edges, taxa=taxa_by_tree_node[tree_node])
-            syngraph_by_tree_node[tree_node].show_recon_metrics(True, tree_node)
-            #syngraph_by_tree_node[tree_node].plot(outprefix="node_%s" % tree_node)
-    return syngraph_by_tree_node
+# def reconstruct_syngraphs_by_tree_node(syngraph, tree, algorithm='fitch'):
+#     '''
+#     - input: syngraph, tree
+#     - output: novel graphs with fitch edges for each internal tree node
+#     '''
+#     if algorithm == 'fitch':
+#         edges_by_tree_node_by_graph_node = collections.defaultdict(dict) # nested dict, graph_node --> taxon --> edges
+#         edges_by_tree_node = collections.defaultdict(list)
+#         taxa_by_tree_node = collections.defaultdict(set)
+#         for graph_node_id in syngraph.nodes:
+#             edge_sets_by_taxon = syngraph.get_target_edge_sets_by_taxon(graph_node_id)
+#             #print('edge_sets_by_taxon', edge_sets_by_taxon)
+#             edges_by_tree_node_by_graph_node[graph_node_id] = fitch(edge_sets_by_taxon, 2, tree)
+#         for graph_node_id, _edges_by_tree_node in edges_by_tree_node_by_graph_node.items():
+#             for tree_node, edges in _edges_by_tree_node.items():
+#                 #print("tree_node", tree_node)
+#                 #print("edges", edges)
+#                 for (u, v) in edges:
+#                     taxa_under_node = set([node.name for node in (tree&tree_node).iter_leaves()])
+#                     taxa_by_tree_node[tree_node].update(taxa_under_node)
+#                     edge_taxa = []
+#                     for taxon in taxa_under_node:
+#                         if frozenset([u, v]) in _edges_by_tree_node[taxon]:
+#                             edge_taxa.append(taxon)
+#                     edges_by_tree_node[tree_node].append((u, v, {'taxa': edge_taxa}))
+#         syngraph_by_tree_node = {}
+#         for tree_node, edges in edges_by_tree_node.items():
+#             syngraph_by_tree_node[tree_node] = Syngraph()
+#             syngraph_by_tree_node[tree_node].from_edges(edges, taxa=taxa_by_tree_node[tree_node])
+#             syngraph_by_tree_node[tree_node].show_recon_metrics(True, tree_node)
+#             #syngraph_by_tree_node[tree_node].plot(outprefix="node_%s" % tree_node)
+#     return syngraph_by_tree_node
 
-def plot_histogram(x, out_f):
-    fig, ax = plt.subplots(figsize=(14, 5))
-    hist, bins = np.histogram(x, bins=50)
-    width = 0.7 * (bins[1] - bins[0])
-    center = (bins[:-1] + bins[1:]) / 2
-    ax.bar(center, hist, align='center', width=width)
-    fig.savefig('%s.png' % out_f, format="png")
+# def plot_histogram(x, out_f):
+#     fig, ax = plt.subplots(figsize=(14, 5))
+#     hist, bins = np.histogram(x, bins=50)
+#     width = 0.7 * (bins[1] - bins[0])
+#     center = (bins[:-1] + bins[1:]) / 2
+#     ax.bar(center, hist, align='center', width=width)
+#     fig.savefig('%s.png' % out_f, format="png")
 
-def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
-    return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
+# def get_hex_colours_by_taxon(taxa, cmap='Spectral'):
+#     return {taxon: matplotlib.colors.rgb2hex(cm.get_cmap(cmap, len(taxa))(i)[:3]) for i, taxon in enumerate(sorted(taxa))}
 
 #############################################################################################
 ################################################################################:)###########
@@ -385,10 +385,10 @@ def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths,
                     best_genome = possible_median  
         return best_genome
 
-def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, rates, inference):
+def heuristic_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, inference):
     # this function needs some work...
     print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
-    print("[+] Searching genome land ...")
+    print("[+] Searching ...")
     if inference == "likelihood":
         best_likelihood = 0
         fis_rate = rates[0]
@@ -396,16 +396,23 @@ def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, r
     elif inference == "parsimony":
         best_total = float("inf")
     best_genome = []
-    def permute_genome_by_fusion(genome):
-        if len(genome) == 1:
+    # permutations by fusion should only fuse LMSs found in the same connected component
+    def permute_genome_by_fusion(genome, connected_components):
+        if len(genome) == len(connected_components):
             return genome
         else:
             temp_genome = copy.deepcopy(genome)
             sampled_chroms = random.sample(temp_genome, 2)
-            for chrom in sampled_chroms:
-                temp_genome.remove(chrom)
-            temp_genome.append(sampled_chroms[0].union(sampled_chroms[1]))
-            return temp_genome
+            successful_fusion = False
+            for connected_component in connected_components:
+                if list(sampled_chroms[0])[0] in connected_component and list(sampled_chroms[1])[0] in connected_component:
+                    successful_fusion = True
+                    for chrom in sampled_chroms:
+                        temp_genome.remove(chrom)
+                    temp_genome.append(sampled_chroms[0].union(sampled_chroms[1]))
+                    return temp_genome
+            if not successful_fusion:
+                return genome
     def permute_genome_by_fission(genome):
         if max([len(chrom) for chrom in genome]) == 1:
             return genome
@@ -426,30 +433,26 @@ def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, r
             temp_genome.append(fission_product_2)
             return temp_genome
     for starting_genome in ios_1, ios_2, ios_3:
-        """
-        best_run_genome
-        best_rune_L
-        best_run_total
-        etc
-        """
-        # five random walk rounds
-        # each starts from the previous round's best point
+        # repeat the following for the three known genomes (ios)
+        # permute by five rounds of random walk
+        # each round starts from the previous round's best point
         # the length of the walk is reduced each round
         starting_genome = [chrom for chrom in starting_genome.values()]
-        for rw_param in [[25, 2500], [10, 2000], [5, 2000], [3, 1000], [1, 1000]]:
+        if inference == "likelihood":
+            best_rw_likelihood = 0
+        elif inference == "parsimony":
+            best_rw_total = float("inf")
+        for rw_param in [[25, 1000], [10, 1000], [5, 1000], [3, 1000], [1, 1000]]:
             rw_length = rw_param[0]
             rw_iterations = rw_param[1]
             for iteration in range(0, rw_iterations):
                 rw_genome = copy.deepcopy(starting_genome)
                 for step in range(0, rw_length):
-                    if step == 0:
-                        pass
-                    else:
-                        coin_flip = random.sample(["fusion", "fission"], 1)[0]
-                        if coin_flip == "fusion":
-                            rw_genome = permute_genome_by_fusion(rw_genome)
-                        elif coin_flip == "fission":
-                            rw_genome = permute_genome_by_fission(rw_genome)
+                    coin_flip = random.sample(["fusion", "fission"], 1)[0]
+                    if coin_flip == "fusion":
+                        rw_genome = permute_genome_by_fusion(rw_genome, connected_components)
+                    elif coin_flip == "fission":
+                        rw_genome = permute_genome_by_fission(rw_genome)
                 # evaluate permuted genomes
                 if inference == "likelihood":
                     likelihood = 1
@@ -457,9 +460,9 @@ def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, r
                         ios = [chrom for chrom in ios.values()]
                         fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
                         likelihood *= evaluate_likelihood(fissions, fusions, branch_lengths["up"][i], branch_lengths["down"][i], fis_rate, fus_rate) 
-                    if likelihood > best_likelihood:
-                        best_likelihood = likelihood
-                        best_genome = rw_genome
+                    if likelihood > best_rw_likelihood:
+                        best_rw_likelihood = likelihood
+                        best_rw_genome = rw_genome
                 elif inference == "parsimony":
                     total_fissions = 0
                     total_fusions = 0
@@ -468,10 +471,18 @@ def heuristic_solver(connected_component, ios_1, ios_2, ios_3, branch_lengths, r
                         fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
                         total_fissions += fissions
                         total_fusions += fusions
-                    if total_fissions + total_fusions < best_total:
-                        best_total = total_fissions + total_fusions
-                        best_genome = rw_genome
-            starting_genome = best_genome        
+                    if total_fissions + total_fusions < best_rw_total:
+                        best_rw_total = total_fissions + total_fusions
+                        best_rw_genome = rw_genome
+            starting_genome = best_rw_genome
+        if inference == "likelihood":
+            if best_rw_likelihood > best_likelihood:
+                best_likelihood = best_rw_likelihood
+                best_genome = best_rw_genome 
+        elif inference == "parsimony":
+            if best_rw_total < best_total:
+                best_total = best_rw_total
+                best_genome = best_rw_genome    
     return best_genome
 
 def write_in_unassigned(tree_node, syngraph, taxa, LMSs, unassignable_markers):

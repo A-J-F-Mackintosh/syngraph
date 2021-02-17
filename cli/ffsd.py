@@ -147,36 +147,49 @@ def main(run_params):
             print("[=] ========================================================================")
 
             # evaluator should iterate from the children of the root to the leaves
-            print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions\tLikelihood")
-            total_likelihood = 1
+            if params.inference == "likelihood":
+                print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions\tLikelihood")
+                total_likelihood = 1
+            elif params.inference == "parsimony":
+                print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions")
             for tree_node in params.tree.traverse(strategy='preorder'):
                 if not tree_node.is_leaf() and not tree_node.is_root():
                     child_1 = tree_node.get_children()[0].name
                     child_2 = tree_node.get_children()[1].name
                     for child in child_1, child_2:
-                        likelihood = 1
                         parent_child_LMSs, unassignable_markers = sg.get_LMSs(traversal_1_syngraph, [tree_node.name, child], params.minimum)
                         parent_LMS_ios = sg.compact_synteny(traversal_1_syngraph, parent_child_LMSs, tree_node.name, "LMS_syngraph")
                         child_LMS_ios = sg.compact_synteny(traversal_1_syngraph, parent_child_LMSs, child, "LMS_syngraph")
                         fusions, fissions = sg.ffsd(sg.compact_synteny("null", [value for value in child_LMS_ios.values()], [value for value in parent_LMS_ios.values()], "index_index"))
-                        likelihood *= stats.poisson.pmf(fissions, rates[0]*tree_node.get_distance(child))
-                        likelihood *= stats.poisson.pmf(fusions, rates[1]*tree_node.get_distance(child))
-                        total_likelihood *= likelihood
-                        print("[=]\t{}\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions, likelihood))
-            print("[=] Rates:\t{}\t{}".format(rates[0], rates[1]))            
-            print("[=] Total likelihood:\t{}".format(total_likelihood))
-            print("[=] ========================================================================")
-            return total_likelihood
+                        if params.inference == "likelihood":
+                            likelihood = 1
+                            likelihood *= stats.poisson.pmf(fissions, rates[0]*tree_node.get_distance(child))
+                            likelihood *= stats.poisson.pmf(fusions, rates[1]*tree_node.get_distance(child))
+                            total_likelihood *= likelihood
+                            print("[=]\t{}\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions, likelihood))
+                        if params.inference == "parsimony":
+                            print("[=]\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions))
+            if params.inference == "likelihood":                
+                print("[=] Rates:\t{}\t{}".format(rates[0], rates[1]))            
+                print("[=] Total likelihood:\t{}".format(total_likelihood))
+                print("[=] ========================================================================")
+                return total_likelihood
+            if params.inference == "parsimony":
+                print("[=] ========================================================================")
 
-
+        # depending on inference type, optimise the model or run once in parsimony mode 
         if parameterObj.inference == "likelihood":
-            opt = nlopt.opt(nlopt.LN_NELDERMEAD, 2)
-            opt.set_lower_bounds([parameterObj.fission_rates[0], parameterObj.fusion_rates[0]])
-            opt.set_upper_bounds([parameterObj.fission_rates[2], parameterObj.fusion_rates[2]])
-            opt.set_xtol_rel(0.01)
-            specified_master_function = partial(master_function, syngraph = syngraph, params = parameterObj)
-            opt.set_max_objective(specified_master_function)
-            xopt = opt.optimize([parameterObj.fission_rates[1], parameterObj.fusion_rates[1]])
+            if len(parameterObj.fission_rates) == 1 and len(parameterObj.fusion_rates) == 1:
+                master_function([parameterObj.fission_rates[0], parameterObj.fusion_rates[0]], None, syngraph, parameterObj)
+            elif len(parameterObj.fission_rates) == 3 and len(parameterObj.fusion_rates) == 3:
+                opt = nlopt.opt(nlopt.LN_NELDERMEAD, 2)
+                opt.set_lower_bounds([parameterObj.fission_rates[0], parameterObj.fusion_rates[0]])
+                opt.set_upper_bounds([parameterObj.fission_rates[2], parameterObj.fusion_rates[2]])
+                opt.set_xtol_rel(0.01)
+                specified_master_function = partial(master_function, syngraph = syngraph, params = parameterObj)
+                opt.set_max_objective(specified_master_function)
+                xopt = opt.optimize([parameterObj.fission_rates[1], parameterObj.fusion_rates[1]])
+                print("[=] Optimised rates:\t{}".format(opt.last_optimum_value()))
         elif parameterObj.inference == "parsimony":
             master_function([float(0), float(0)], None, syngraph, parameterObj)
 
