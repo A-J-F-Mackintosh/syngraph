@@ -1,5 +1,6 @@
 import sys
 import itertools
+import more_itertools
 import matplotlib
 import matplotlib.cm as cm
 import pandas as pd
@@ -226,71 +227,42 @@ def compact_synteny(syngraph, ref_taxon, query_taxon, mode):
         for graph_node_id in syngraph.nodes():
             for LMS in ref_taxon:
                 if graph_node_id in ref_taxon[LMS]:
-                    querychrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].add(LMS)                
+                    querychrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].add(LMS)
     elif mode == "index_index": # list of sets
-        # chroms have no names when the genome is represented as a list of sets
-        # as a result, I am using the content of chroms/sets as indices
-        # this 'works' but when debugging is ugly/confusing
+        # chroms have no names when the genome is represented as a list of sets so am giving them a number
+        chrom = 0
         for querychrom in query_taxon:
+            chrom += 1
             for index in querychrom:
                 for refchrom in ref_taxon:
-                    if index in refchrom:
-                        querychrom2index[frozenset(querychrom)].add(frozenset(refchrom))
+                    if index in ref_taxon[refchrom]:
+                        querychrom2index[str(chrom)].add(refchrom)
     return querychrom2index
 
-def check_for_fusions(instance_of_synteny, fusions_so_far):
-    # nicer code, but slow
-    fusions = fusions_so_far
-    new_fusions = 0
+def check_for_fusions(instance_of_synteny, fusion_count, fusion_log):
+    # can be sped up
     for combo in itertools.combinations(instance_of_synteny.keys(), 2):
         if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
-            instance_of_synteny[combo[0]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
-            instance_of_synteny[combo[1]] = set()
-            new_fusions += 1
-    if new_fusions > 0:
-        fusions += new_fusions
-        return check_for_fusions(instance_of_synteny, fusions)
-    else:
-        return instance_of_synteny, fusions
-
-def check_for_fusions_v2(instance_of_synteny, fusions_so_far):
-    # ugly code, but a little faster
-    new_fusions = 0
-    index_count = collections.defaultdict(int)
-    candidate_indices = set()
-    candidate_chroms = set()
-    for chrom in instance_of_synteny.values():
-        for index in chrom:
-            index_count[index] += 1
-            if index_count[index] == 2:
-                candidate_indices.add(index)
-    for chrom_name in instance_of_synteny.keys():
-        for index in candidate_indices:
-            if index in instance_of_synteny[chrom_name]:
-                candidate_chroms.add(chrom_name)
-    for combo in itertools.combinations(candidate_chroms, 2):
-        if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
-            instance_of_synteny[combo[0]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
-            instance_of_synteny[combo[1]] = set()
-            new_fusions += 1
-    if new_fusions > 0:
-        fusions_so_far += new_fusions
-        return check_for_fusions_v2(instance_of_synteny, fusions_so_far)
-    else:
-        return instance_of_synteny, fusions_so_far
+            instance_of_synteny[combo[0]+ "_" + combo[1]] = instance_of_synteny[combo[0]].union(instance_of_synteny[combo[1]])
+            fusion_log.append((combo[0], combo[1]))
+            del instance_of_synteny[combo[0]]
+            del instance_of_synteny[combo[1]]
+            fusion_count += 1
+            return check_for_fusions(instance_of_synteny, fusion_count, fusion_log)
+    return instance_of_synteny, fusion_count, fusion_log
 
 def check_for_fissions(instance_of_synteny):
     fissions = 0
-    for querychrom in instance_of_synteny:
-        indices = len(instance_of_synteny[querychrom])
+    for chrom in instance_of_synteny:
+        indices = len(instance_of_synteny[chrom])
         if indices > 1:
             fissions += (indices - 1)
     return fissions
 
 def ffsd(instance_of_synteny):
-    instance_of_synteny, total_fusions = check_for_fusions_v2(instance_of_synteny, 0)
+    instance_of_synteny, total_fusions, fusion_log = check_for_fusions(instance_of_synteny, 0, [])
     total_fissions = check_for_fissions(instance_of_synteny)
-    return(total_fusions, total_fissions)
+    return total_fusions, total_fissions, fusion_log
 
 def get_LMSs(syngraph, list_of_taxa, minimum):
     # could be a numpy solution...
@@ -363,19 +335,42 @@ def generate_parsimony_genome(ios_1, ios_2, ios_3, LMSs):
     parsimony_genome = [component for component in parsimony_genome if component != set()]
     return parsimony_genome
 
-def partition(cc):
-    # function is from https://stackoverflow.com/questions/19368375/set-partitions-in-python
-    # this will exhaustively generate all possible partitions
-    if len(cc) == 1:
-        yield [cc]
-        return
-    first = cc[0]
-    for smaller in partition(cc[1:]):
-        for n, subset in enumerate(smaller):
-            yield smaller[:n] + [[first] + subset]  + smaller[n+1:] 
-        yield [[first]] + smaller
+def evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible_median, 
+    best_total, best_max_branch_rate, best_genome, best_fusion_log):
+    total_fissions = 0
+    total_fusions = 0
+    max_branch_rate = 0
+    fusion_log = [[], [], []]
+    for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
+        fusions, fissions, fusion_log[i] = ffsd(compact_synteny(None, ios, possible_median, "index_index"))
+        branch_rate = (fusions + fissions) / (branch_lengths["up"][i] + branch_lengths["down"][i])
+        if branch_rate > max_branch_rate:
+            max_branch_rate = branch_rate
+        total_fissions += fissions
+        total_fusions += fusions
+        if best_total < total_fissions + total_fissions:
+            return best_genome, best_total, best_max_branch_rate, best_fusion_log
+    if best_total > total_fissions + total_fusions or \
+    best_total == total_fissions + total_fusions and max_branch_rate < best_max_branch_rate:
+        best_total = total_fissions + total_fusions
+        best_max_branch_rate = max_branch_rate
+        best_genome = possible_median
+        best_fusion_log = fusion_log
+    return best_genome, best_total, best_max_branch_rate, best_fusion_log
 
-def evaluate_likelihood(fissions, fusions, branch_length_up, branch_length_down, fis_rate, fus_rate):
+def evaluate_genome_with_likelihood(fis_rate, fus_rate, branch_lengths, ios_1, ios_2, ios_3, possible_median, 
+    best_likelihood, best_genome):
+    likelihood = 1
+    for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
+        fusions, fissions = ffsd(compact_synteny(None, ios, possible_median, "index_index"))
+        likelihood *= calculate_likelihood(fissions, fusions, branch_lengths["up"][i], branch_lengths["down"][i], fis_rate, 
+            fus_rate)
+    if likelihood > best_likelihood:
+        best_likelihood = likelihood
+        best_genome = possible_median
+    return best_genome, best_likelihood
+
+def calculate_likelihood(fissions, fusions, branch_length_up, branch_length_down, fis_rate, fus_rate):
     likelihood = 1
     if branch_length_up == 0:
         likelihood *= stats.poisson.pmf(fissions, fis_rate*branch_length_down)
@@ -387,9 +382,11 @@ def evaluate_likelihood(fissions, fusions, branch_length_up, branch_length_down,
         fission_likelihood = 0
         fusion_likelihood = 0
         for i in range(0, fissions+1):
-            fission_likelihood += (stats.poisson.pmf(fissions-i, fis_rate*branch_length_down) * stats.poisson.pmf(i, fus_rate*branch_length_up))
+            fission_likelihood += (stats.poisson.pmf(fissions-i, fis_rate*branch_length_down) * \
+                stats.poisson.pmf(i, fus_rate*branch_length_up))
         for j in range(0, fusions+1):
-            fusion_likelihood += (stats.poisson.pmf(fusions-j, fus_rate*branch_length_down) * stats.poisson.pmf(j, fis_rate*branch_length_up))      
+            fusion_likelihood += (stats.poisson.pmf(fusions-j, fus_rate*branch_length_down) * \
+                stats.poisson.pmf(j, fis_rate*branch_length_up))      
         likelihood = fission_likelihood * fusion_likelihood
     return likelihood
 
@@ -402,7 +399,7 @@ def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths,
         possible_medians = []
         partition_dict = collections.defaultdict(list)
         for connected_component in connected_components:
-            for par in partition(list(connected_component)):
+            for par in more_itertools.set_partitions(connected_component):
                 par = [set(pa) for pa in par]
                 partition_dict[frozenset(list(connected_component))].append(par)
         for combo in itertools.product(*partition_dict.values()):
@@ -420,36 +417,14 @@ def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths,
             best_total = float("inf")
             best_max_branch_rate = float("inf") # use this to solve ties
         best_genome = []
+        best_fusion_log = [[], [], []]
         for possible_median in possible_medians:
             if inference == "likelihood":
-                likelihood = 1
-                for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
-                    ios = [chrom for chrom in ios.values()]
-                    fusions, fissions = ffsd(compact_synteny("null", ios, possible_median, "index_index"))
-                    likelihood *= evaluate_likelihood(fissions, fusions, branch_lengths["up"][i], branch_lengths["down"][i], fis_rate, fus_rate) 
-                if likelihood > best_likelihood:
-                    best_likelihood = likelihood
-                    best_genome = possible_median
+                best_genome, best_likelihood = evaluate_genome_with_likelihood(fis_rate, fus_rate, branch_lengths, ios_1, ios_2, 
+                    ios_3, possible_median, best_likelihood, best_genome)
             elif inference == "parsimony":
-                total_fissions = 0
-                total_fusions = 0
-                max_branch_rate = 0
-                for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
-                    ios = [chrom for chrom in ios.values()]
-                    fusions, fissions = ffsd(compact_synteny("null", ios, possible_median, "index_index"))
-                    branch_rate = (fusions + fissions) / (branch_lengths["up"][i] + branch_lengths["down"][i])
-                    if branch_rate > max_branch_rate:
-                        max_branch_rate = branch_rate
-                    total_fissions += fissions
-                    total_fusions += fusions
-                if total_fissions + total_fusions < best_total:
-                    best_total = total_fissions + total_fusions
-                    best_max_branch_rate = max_branch_rate
-                    best_genome = possible_median
-                elif total_fissions + total_fusions == best_total and max_branch_rate < best_max_branch_rate:
-                    best_total = total_fissions + total_fusions
-                    best_max_branch_rate = max_branch_rate
-                    best_genome = possible_median
+                best_genome, best_total, best_max_branch_rate, best_fusion_log = evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, 
+                    ios_3, possible_median, best_total, best_max_branch_rate, best_genome, best_fusion_log)
         return best_genome
 
 # permutations by fusion should only fuse LMSs found in the same connected component
@@ -491,23 +466,24 @@ def permute_genome_by_fission(genome):
         return temp_genome
 
 def heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, branch_lengths, rates, inference):
-    # this function needs some work...
-    print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search. To avoid this try increasing the -m parameter.")
+    print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search.", \
+        "To avoid this, consider increasing the -m parameter.")
     print("[+] Searching ...")
     if inference == "likelihood":
         best_likelihood = 0
         fis_rate = rates[0]
         fus_rate = rates[1]
-        best_rw_likelihood = 0
     elif inference == "parsimony":
         best_total = float("inf")
-        best_rw_total = float("inf")
-    best_genome = parsimony_genome
+        best_max_branch_rate = float("inf")
+    best_genome = []
+    best_fusion_log = [[], [], []]
+    starting_genome = copy.deepcopy(parsimony_genome)
     for rw_param in [[9, 1000], [7, 1000], [5, 1000], [3, 1000], [1, 1000]]:
         rw_length = rw_param[0]
         rw_iterations = rw_param[1]
         for iteration in range(0, rw_iterations):
-            rw_genome = copy.deepcopy(parsimony_genome)
+            rw_genome = copy.deepcopy(starting_genome)
             if iteration == 0:
                 pass
             else:
@@ -519,35 +495,12 @@ def heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome
                         rw_genome = permute_genome_by_fission(rw_genome)
             # evaluate permuted genomes
             if inference == "likelihood":
-                likelihood = 1
-                for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
-                    ios = [chrom for chrom in ios.values()]
-                    fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
-                    likelihood *= evaluate_likelihood(fissions, fusions, branch_lengths["up"][i], branch_lengths["down"][i], fis_rate, fus_rate) 
-                if likelihood > best_rw_likelihood:
-                    best_rw_likelihood = likelihood
-                    best_rw_genome = rw_genome
+                best_genome, best_likelihood = evaluate_genome_with_likelihood(fis_rate, fus_rate, branch_lengths, ios_1, ios_2, 
+                    ios_3, rw_genome, best_likelihood, best_genome)
             elif inference == "parsimony":
-                total_fissions = 0
-                total_fusions = 0
-                for ios in ios_1, ios_2, ios_3:
-                    ios = [chrom for chrom in ios.values()]
-                    fusions, fissions = ffsd(compact_synteny("null", ios, rw_genome, "index_index"))
-                    total_fissions += fissions
-                    total_fusions += fusions
-                if total_fissions + total_fusions < best_rw_total:
-                    best_rw_total = total_fissions + total_fusions
-                    best_rw_genome = rw_genome
-                #print("random_walk\t{}\t{}\t{}".format(total_fissions + total_fusions, best_rw_total, best_total))    
-        starting_genome = best_rw_genome
-    if inference == "likelihood":
-        if best_rw_likelihood > best_likelihood:
-            best_likelihood = best_rw_likelihood
-            best_genome = best_rw_genome 
-    elif inference == "parsimony":
-        if best_rw_total < best_total:
-            best_total = best_rw_total
-            best_genome = best_rw_genome    
+                best_genome, best_total, best_max_branch_rate, best_fusion_log = evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, 
+                    ios_3, rw_genome, best_total, best_max_branch_rate, best_genome, best_fusion_log)
+        starting_genome = best_genome
     return best_genome
 
 def write_in_unassigned(tree_node, syngraph, taxa, LMSs, unassignable_markers):
@@ -603,15 +556,18 @@ def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengt
     # and then call the appropriate solving function
     bell_numbers = [1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, 678570, 4213597]
     if max([len(connected_component) for connected_component in connected_components]) > 9:
-        solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, branch_lengths, rates, inference)
+        solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, 
+            branch_lengths, rates, inference)
     else:
         possible_medians = 1
         for connected_component in connected_components:
             possible_medians *= bell_numbers[len(connected_component)-1]
         if possible_medians > 50000:
-            solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, branch_lengths, rates, inference)
+            solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, 
+                branch_lengths, rates, inference)
         else:
-            solved_connected_components = exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, inference)
+            solved_connected_components = exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, 
+                inference)
     print("[=] Found a median genome with {} chromosomes".format(len(solved_connected_components)))
     # from solved_connected_components, add this new ancestral genome to a syngraph
     output_syngraph.graph['taxa'].add(tree_node)
@@ -645,8 +601,10 @@ def tree_traversal(rates, syngraph, params):
                 up_distance, down_distance = get_branch_distances(params.tree, tree_node, taxon)
                 branch_lengths["up"].append(up_distance)
                 branch_lengths["down"].append(down_distance)
-            print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, child_2, outgroup))
-            traversal_0_syngraph = median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, [child_1, child_2, outgroup], branch_lengths, rates, params.minimum, params.inference)
+            print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, 
+                child_2, outgroup))
+            traversal_0_syngraph = median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, [child_1, child_2, 
+                outgroup], branch_lengths, rates, params.minimum, params.inference)
             available_taxa.add(tree_node.name)
     print("[=] ========================================================================")
     return traversal_0_syngraph
@@ -666,15 +624,18 @@ def solution_evaluator(rates, solved_syngraph, params):
                 parent_child_LMSs, unassignable_markers = get_LMSs(solved_syngraph, [tree_node.name, child], params.minimum)
                 parent_LMS_ios = compact_synteny(solved_syngraph, parent_child_LMSs, tree_node.name, "LMS_syngraph")
                 child_LMS_ios = compact_synteny(solved_syngraph, parent_child_LMSs, child, "LMS_syngraph")
-                fusions, fissions = ffsd(compact_synteny("null", [value for value in child_LMS_ios.values()], [value for value in parent_LMS_ios.values()], "index_index"))
+                fusions, fissions, fusion_log = ffsd(compact_synteny(None, child_LMS_ios, 
+                    [value for value in parent_LMS_ios.values()], "index_index"))
                 if params.inference == "likelihood":
                     likelihood = 1
                     likelihood *= stats.poisson.pmf(fissions, rates[0]*tree_node.get_distance(child))
                     likelihood *= stats.poisson.pmf(fusions, rates[1]*tree_node.get_distance(child))
                     total_likelihood *= likelihood
-                    print("[=]\t{}\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions, likelihood))
+                    print("[=]\t{}\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, 
+                        fissions, likelihood))
                 if params.inference == "parsimony":
-                    print("[=]\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, fissions))
+                    print("[=]\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, 
+                        fissions))
     if params.inference == "likelihood":               
         print("[=] Rates:\t{}\t{}".format(rates[0], rates[1]))            
         print("[=] Total likelihood:\t{}".format(total_likelihood))
