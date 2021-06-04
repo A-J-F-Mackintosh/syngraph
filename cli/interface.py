@@ -4,7 +4,7 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
 
   [Modules]
     build               Build graph from orthology data (e.g. BUSCO *.full_table.tsv)
-    ffsd                Models fission and fusion over a tree
+    infer               Models fission and fusion over a tree
     viz                 Visualise graph/data [TBI]
     synulate            Simulate graphs [TBI]
     
@@ -37,9 +37,9 @@ def main():
         if args['<module>'] == 'build':
             import cli.build as build
             build.main(run_params)
-        elif args['<module>'] == 'ffsd':
-            import cli.ffsd as ffsd
-            ffsd.main(run_params)
+        elif args['<module>'] == 'infer':
+            import cli.infer as infer
+            infer.main(run_params)
         elif args['<module>'] == 'viz':
             import cli.viz as viz
             viz.main(run_params)

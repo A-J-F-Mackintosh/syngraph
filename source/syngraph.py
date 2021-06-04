@@ -58,10 +58,10 @@ def load_markerObjs(parameterObj):
                             else:
                                 sys.exit("[X] Sign must be '+' or '-' in line %r in file %r, not %r" % (idx, infile, sign))
                             for _name, _coord in coords_by_name.items():
-                                markerObj= MarkerObj(name=_name, status=status, taxon=taxon, seq=seq, coord=_coord)
+                                markerObj= MarkerObj(name=_name, status=status, taxon=taxon, seq=taxon+"_"+seq, coord=_coord)
                                 taxon_markerObjs.append(markerObj)
                         else:
-                            markerObj = MarkerObj(name=name, status=status, taxon=taxon, seq=seq, coord=start)
+                            markerObj = MarkerObj(name=name, status=status, taxon=taxon, seq=taxon+"_"+seq, coord=start)
                             taxon_markerObjs.append(markerObj)
                 taxon_markerObjs = sorted(taxon_markerObjs, key=attrgetter('seq', 'coord'))
                 tmp_markerObjs.extend(taxon_markerObjs)
@@ -113,7 +113,7 @@ def load_markerObjs(parameterObj):
                             status = 'Single'
                         else:
                             sys.exit("[X] %s" % (idx, seq, start, end, locus))
-                        markerObj = MarkerObj(name=marker, desc=locus, status=status, taxon=taxon, seq=seq, coord=start)
+                        markerObj = MarkerObj(name=marker, desc=locus, status=status, taxon=taxon, seq=taxon+"_"+seq, coord=start)
                         markerObjs.append(markerObj)
                 locus_by_type_by_taxon[taxon]['both'] = locus_by_type_by_taxon[taxon]['tsv'].intersection(locus_by_type_by_taxon[taxon]['bed'])
                 locus_by_type_by_taxon[taxon]['not_bed'] = locus_by_type_by_taxon[taxon]['tsv'] - locus_by_type_by_taxon[taxon]['bed']
@@ -221,25 +221,33 @@ def get_branch_distances(tree, tree_node_A, tree_node_B):
     down_distance = mrca.get_distance(tree_node_B)
     return up_distance, down_distance
 
-def compact_synteny(syngraph, ref_taxon, query_taxon, mode):
+def compact_synteny_1(syngraph, LMSs, taxon):
     querychrom2index = collections.defaultdict(set)
-    if mode == "LMS_syngraph":
-        for graph_node_id in syngraph.nodes():
-            for LMS in ref_taxon:
-                if graph_node_id in ref_taxon[LMS]:
-                    querychrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][query_taxon]].add(LMS)
-    elif mode == "index_index": # list of sets
-        # chroms have no names when the genome is represented as a list of sets so am giving them a number
-        chrom = 0
-        for querychrom in query_taxon:
-            chrom += 1
-            for index in querychrom:
-                for refchrom in ref_taxon:
-                    if index in ref_taxon[refchrom]:
-                        querychrom2index[str(chrom)].add(refchrom)
+    for graph_node_id in syngraph.nodes():
+        for LMS in LMSs:
+            if graph_node_id in LMSs[LMS]:
+                querychrom2index[syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(LMS)
     return querychrom2index
 
-def check_for_fusions(instance_of_synteny, fusion_count, fusion_log):
+def compact_synteny_2(taxon_A, taxon_B):
+    querychrom2index = collections.defaultdict(set)
+    for B_chrom in taxon_B:
+        for index in taxon_B[B_chrom]:
+            for A_chrom in taxon_A:
+                if index in taxon_A[A_chrom]:
+                    querychrom2index[B_chrom].add(A_chrom)
+    return querychrom2index
+
+def label_genome(tree_node, genome):
+    # chroms have no names when the genome is represented as a list of sets so am giving them a number
+    labelled_genome = {}
+    chrom_number = 0
+    for chrom in genome:
+        chrom_number += 1
+        labelled_genome[tree_node + "_" + str(chrom_number)] = chrom
+    return labelled_genome
+
+def check_for_fusions(instance_of_synteny, fusion_log):
     # can be sped up
     for combo in itertools.combinations(instance_of_synteny.keys(), 2):
         if instance_of_synteny[combo[0]].intersection(instance_of_synteny[combo[1]]):
@@ -247,22 +255,23 @@ def check_for_fusions(instance_of_synteny, fusion_count, fusion_log):
             fusion_log.append((combo[0], combo[1]))
             del instance_of_synteny[combo[0]]
             del instance_of_synteny[combo[1]]
-            fusion_count += 1
-            return check_for_fusions(instance_of_synteny, fusion_count, fusion_log)
-    return instance_of_synteny, fusion_count, fusion_log
+            return check_for_fusions(instance_of_synteny, fusion_log)
+    return instance_of_synteny, fusion_log
 
 def check_for_fissions(instance_of_synteny):
-    fissions = 0
+    # log something like chrom_name and number of fissions?
+    fission_log = []
     for chrom in instance_of_synteny:
         indices = len(instance_of_synteny[chrom])
         if indices > 1:
-            fissions += (indices - 1)
-    return fissions
+            fission_log.append(tuple([chrom, indices]))
+    return fission_log
 
 def ffsd(instance_of_synteny):
-    instance_of_synteny, total_fusions, fusion_log = check_for_fusions(instance_of_synteny, 0, [])
-    total_fissions = check_for_fissions(instance_of_synteny)
-    return total_fusions, total_fissions, fusion_log
+    #print("#####", instance_of_synteny)
+    instance_of_synteny, fusion_log = check_for_fusions(instance_of_synteny, [])
+    fission_log = check_for_fissions(instance_of_synteny)
+    return fusion_log, fission_log
 
 def get_LMSs(syngraph, list_of_taxa, minimum):
     # could be a numpy solution...
@@ -331,66 +340,46 @@ def generate_parsimony_genome(ios_1, ios_2, ios_3, LMSs):
     for i in range(len(parsimony_genome)):
         if parsimony_genome[i] != set():
             parsimony_genome = bubble(i, parsimony_genome)
+    # add in shared LMSs
+    for LMS in LMSs.keys():
+        already_in = False
+        for chrom in parsimony_genome:
+            if LMS in chrom:
+                already_in = True
+        if not already_in:
+            parsimony_genome.append({LMS})
     # get rid of empty sets then return
     parsimony_genome = [component for component in parsimony_genome if component != set()]
     return parsimony_genome
 
 def evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible_median, 
-    best_total, best_max_branch_rate, best_genome, best_fusion_log):
+    best_total, best_max_branch_rate, best_genome, best_fusion_log, best_fission_log):
     total_fissions = 0
     total_fusions = 0
     max_branch_rate = 0
     fusion_log = [[], [], []]
+    fission_log = [[], [], []]
     for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
-        fusions, fissions, fusion_log[i] = ffsd(compact_synteny(None, ios, possible_median, "index_index"))
+        fusion_log[i], fission_log[i] = ffsd(compact_synteny_2(ios, possible_median))
+        fusions = len(fusion_log[i])
+        fissions = sum(entry[1]-1 for entry in fission_log[i])
         branch_rate = (fusions + fissions) / (branch_lengths["up"][i] + branch_lengths["down"][i])
         if branch_rate > max_branch_rate:
             max_branch_rate = branch_rate
         total_fissions += fissions
         total_fusions += fusions
         if best_total < total_fissions + total_fissions:
-            return best_genome, best_total, best_max_branch_rate, best_fusion_log
+            return best_genome, best_total, best_max_branch_rate, best_fusion_log, best_fission_log
     if best_total > total_fissions + total_fusions or \
     best_total == total_fissions + total_fusions and max_branch_rate < best_max_branch_rate:
         best_total = total_fissions + total_fusions
         best_max_branch_rate = max_branch_rate
         best_genome = possible_median
         best_fusion_log = fusion_log
-    return best_genome, best_total, best_max_branch_rate, best_fusion_log
+        best_fission_log = fission_log
+    return best_genome, best_total, best_max_branch_rate, best_fusion_log, best_fission_log
 
-def evaluate_genome_with_likelihood(fis_rate, fus_rate, branch_lengths, ios_1, ios_2, ios_3, possible_median, 
-    best_likelihood, best_genome):
-    likelihood = 1
-    for ios, i in zip([ios_1, ios_2, ios_3], range(0, 3)):
-        fusions, fissions = ffsd(compact_synteny(None, ios, possible_median, "index_index"))
-        likelihood *= calculate_likelihood(fissions, fusions, branch_lengths["up"][i], branch_lengths["down"][i], fis_rate, 
-            fus_rate)
-    if likelihood > best_likelihood:
-        best_likelihood = likelihood
-        best_genome = possible_median
-    return best_genome, best_likelihood
-
-def calculate_likelihood(fissions, fusions, branch_length_up, branch_length_down, fis_rate, fus_rate):
-    likelihood = 1
-    if branch_length_up == 0:
-        likelihood *= stats.poisson.pmf(fissions, fis_rate*branch_length_down)
-        likelihood *= stats.poisson.pmf(fusions, fus_rate*branch_length_down)
-    elif branch_length_down == 0:
-        likelihood *= stats.poisson.pmf(fusions, fis_rate*branch_length_up)
-        likelihood *= stats.poisson.pmf(fissions, fus_rate*branch_length_up)           
-    else:
-        fission_likelihood = 0
-        fusion_likelihood = 0
-        for i in range(0, fissions+1):
-            fission_likelihood += (stats.poisson.pmf(fissions-i, fis_rate*branch_length_down) * \
-                stats.poisson.pmf(i, fus_rate*branch_length_up))
-        for j in range(0, fusions+1):
-            fusion_likelihood += (stats.poisson.pmf(fusions-j, fus_rate*branch_length_down) * \
-                stats.poisson.pmf(j, fis_rate*branch_length_up))      
-        likelihood = fission_likelihood * fusion_likelihood
-    return likelihood
-
-def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, inference):
+def exhaustive_solver(tree_node, connected_components, ios_1, ios_2, ios_3, branch_lengths):
     # if there are no 'tangles' then there are no events
     if max([len(connected_component) for connected_component in connected_components]) == 1:
         return connected_components
@@ -409,23 +398,17 @@ def exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths,
                     a_possible_median.append(sets)
             possible_medians.append(a_possible_median)
         # now evaluate candidate genomes
-        if inference == "likelihood":
-            best_likelihood = 0
-            fis_rate = rates[0]
-            fus_rate = rates[1]
-        elif inference == "parsimony":
-            best_total = float("inf")
-            best_max_branch_rate = float("inf") # use this to solve ties
+        best_total = float("inf")
+        best_max_branch_rate = float("inf") # use this to solve ties
         best_genome = []
         best_fusion_log = [[], [], []]
+        best_fission_log = [[], [], []]
         for possible_median in possible_medians:
-            if inference == "likelihood":
-                best_genome, best_likelihood = evaluate_genome_with_likelihood(fis_rate, fus_rate, branch_lengths, ios_1, ios_2, 
-                    ios_3, possible_median, best_likelihood, best_genome)
-            elif inference == "parsimony":
-                best_genome, best_total, best_max_branch_rate, best_fusion_log = evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, 
-                    ios_3, possible_median, best_total, best_max_branch_rate, best_genome, best_fusion_log)
-        return best_genome
+            possible_median = label_genome(tree_node, possible_median)
+            best_genome, best_total, best_max_branch_rate, best_fusion_log, best_fission_log = \
+            evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible_median, best_total, 
+                best_max_branch_rate, best_genome, best_fusion_log, best_fission_log)
+        return best_genome, [best_fusion_log[0], best_fusion_log[1]], [best_fission_log[0], best_fission_log[1]]
 
 # permutations by fusion should only fuse LMSs found in the same connected component
 def permute_genome_by_fusion(genome, connected_components):
@@ -465,19 +448,15 @@ def permute_genome_by_fission(genome):
         temp_genome.append(fission_product_2)
         return temp_genome
 
-def heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, branch_lengths, rates, inference):
+def heuristic_solver(tree_node, connected_components, ios_1, ios_2, ios_3, parsimony_genome, branch_lengths):
     print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search.", \
         "To avoid this, consider increasing the -m parameter.")
     print("[+] Searching ...")
-    if inference == "likelihood":
-        best_likelihood = 0
-        fis_rate = rates[0]
-        fus_rate = rates[1]
-    elif inference == "parsimony":
-        best_total = float("inf")
-        best_max_branch_rate = float("inf")
+    best_total = float("inf")
+    best_max_branch_rate = float("inf")
     best_genome = []
     best_fusion_log = [[], [], []]
+    best_fission_log = [[], [], []]
     starting_genome = copy.deepcopy(parsimony_genome)
     for rw_param in [[9, 1000], [7, 1000], [5, 1000], [3, 1000], [1, 1000]]:
         rw_length = rw_param[0]
@@ -493,18 +472,17 @@ def heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome
                         rw_genome = permute_genome_by_fusion(rw_genome, connected_components)
                     elif coin_flip == "fission":
                         rw_genome = permute_genome_by_fission(rw_genome)
+            rw_genome = label_genome(tree_node, rw_genome)
             # evaluate permuted genomes
-            if inference == "likelihood":
-                best_genome, best_likelihood = evaluate_genome_with_likelihood(fis_rate, fus_rate, branch_lengths, ios_1, ios_2, 
-                    ios_3, rw_genome, best_likelihood, best_genome)
-            elif inference == "parsimony":
-                best_genome, best_total, best_max_branch_rate, best_fusion_log = evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, 
-                    ios_3, rw_genome, best_total, best_max_branch_rate, best_genome, best_fusion_log)
-        starting_genome = best_genome
-    return best_genome
+            best_genome, best_total, best_max_branch_rate, best_fusion_log, best_fission_log = \
+            evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, rw_genome, best_total, best_max_branch_rate, 
+                best_genome, best_fusion_log, best_fission_log)
+                #print(len(rw_genome), len(best_genome), best_total)
+        starting_genome = [value for value in best_genome.values()]
+    return best_genome, [best_fusion_log[0], best_fusion_log[1]], [best_fission_log[0], best_fission_log[1]]
 
 def write_in_unassigned(tree_node, syngraph, taxa, LMSs, unassignable_markers):
-    # if there are bugs in this function then this would be a big problem
+    # if there are bugs in this function then this would be bad
     # how will this function behave when there are multiple traversals?
     reassigned_markers = 0
     LMS_sbt_chrom = {}
@@ -523,8 +501,8 @@ def write_in_unassigned(tree_node, syngraph, taxa, LMSs, unassignable_markers):
                 u_sbt.add(syngraph.nodes[unassignable]['seqs_by_taxon'][taxon])
         for l_sbt in LMS_sbt_chrom:
             matches = 0
-            for taxon in u_sbt:
-                if taxon in l_sbt:
+            for seq in u_sbt:
+                if seq in l_sbt:
                     matches += 1
             if matches == 2:
                 u_chroms.add(LMS_sbt_chrom[l_sbt])
@@ -537,18 +515,18 @@ def write_in_unassigned(tree_node, syngraph, taxa, LMSs, unassignable_markers):
 
 # name function variables, e.g. tree_node = None and tree_node = my_tree_node when you call
 
-def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengths, rates, minimum, inference):
+def median_genome(tree_node, working_syngraph, taxa, branch_lengths, minimum):
     # get LMSs >= minimum
     # LMSs < minimum are dealt with later and don't contribute to events
     # remaining LMSs represent a fissioned median genome
-    LMSs, unassignable_markers = get_LMSs(input_syngraph, taxa, minimum)
+    LMSs, unassignable_markers = get_LMSs(working_syngraph, taxa, minimum)
     print("[=] Generated {} LMSs containing {} markers".format(len(LMSs.keys()), sum([len(LMSs[LMS]) for LMS in LMSs])))
     print("[=] A total of {} markers are not assigned to an LMS".format(len(unassignable_markers)))
     # given compact synteny of each extant genome to the fissioned median, generate connected components of LMSs
     # rewrite as instance_of_synteny
-    ios_1 = compact_synteny(input_syngraph, LMSs, taxa[0], "LMS_syngraph")
-    ios_2 = compact_synteny(input_syngraph, LMSs, taxa[1], "LMS_syngraph")
-    ios_3 = compact_synteny(input_syngraph, LMSs, taxa[2], "LMS_syngraph")
+    ios_1 = compact_synteny_1(working_syngraph, LMSs, taxa[0])
+    ios_2 = compact_synteny_1(working_syngraph, LMSs, taxa[1])
+    ios_3 = compact_synteny_1(working_syngraph, LMSs, taxa[2])
     connected_components = generate_connected_components(ios_1, ios_2, ios_3)
     parsimony_genome = generate_parsimony_genome(ios_1, ios_2, ios_3, LMSs)
     print("[=] Generated {} connected components".format(len(connected_components)))
@@ -556,33 +534,36 @@ def median_genome(tree_node, input_syngraph, output_syngraph, taxa, branch_lengt
     # and then call the appropriate solving function
     bell_numbers = [1, 2, 5, 15, 52, 203, 877, 4140, 21147, 115975, 678570, 4213597]
     if max([len(connected_component) for connected_component in connected_components]) > 9:
-        solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, 
-            branch_lengths, rates, inference)
+        solved_connected_components, fusion_log, fission_log = heuristic_solver(tree_node, connected_components, ios_1, ios_2, 
+            ios_3, parsimony_genome, branch_lengths)
     else:
         possible_medians = 1
         for connected_component in connected_components:
             possible_medians *= bell_numbers[len(connected_component)-1]
         if possible_medians > 50000:
-            solved_connected_components = heuristic_solver(connected_components, ios_1, ios_2, ios_3, parsimony_genome, 
-                branch_lengths, rates, inference)
+            solved_connected_components, fusion_log, fission_log = heuristic_solver(tree_node, connected_components, ios_1, 
+                ios_2, ios_3, parsimony_genome, branch_lengths)
         else:
-            solved_connected_components = exhaustive_solver(connected_components, ios_1, ios_2, ios_3, branch_lengths, rates, 
-                inference)
+            solved_connected_components, fusion_log, fission_log = exhaustive_solver(tree_node, connected_components, ios_1, 
+                ios_2, ios_3, branch_lengths)
     print("[=] Found a median genome with {} chromosomes".format(len(solved_connected_components)))
     # from solved_connected_components, add this new ancestral genome to a syngraph
-    output_syngraph.graph['taxa'].add(tree_node)
-    new_chromosome = 1
+    working_syngraph.graph['taxa'].add(tree_node)
     for chrom in solved_connected_components:
-        for LMS in chrom:
+        for LMS in solved_connected_components[chrom]:
             for graph_node_id in LMSs[LMS]:
-                output_syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
-                output_syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = tree_node + "_" + str(new_chromosome)
-        new_chromosome += 1
+                working_syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
+                working_syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = chrom
     # finally, write in LMSs/markers that were too small or missing from a taxon, but can be assigned by parismony
-    output_syngraph = write_in_unassigned(tree_node, input_syngraph, taxa, LMSs, unassignable_markers)
-    return output_syngraph
+    ### last part to fix
+    ### then proof read
+    working_syngraph = write_in_unassigned(tree_node, working_syngraph, taxa, LMSs, unassignable_markers)
+    print("")
+    return working_syngraph, fusion_log, fission_log
 
-def tree_traversal(rates, syngraph, params):
+def tree_traversal(syngraph, params):
+    # write a log
+    log = ["#parent\tchild\tfusions\tfissions"]
     # copy syngraph
     traversal_0_syngraph = copy.deepcopy(syngraph)
     # define which taxa are extant and so can be sampled from the start
@@ -603,47 +584,14 @@ def tree_traversal(rates, syngraph, params):
                 branch_lengths["down"].append(down_distance)
             print("[+] Inferring median genome for {} using data from {}, {}, and {} ...". format(tree_node.name, child_1, 
                 child_2, outgroup))
-            traversal_0_syngraph = median_genome(tree_node.name, traversal_0_syngraph, traversal_0_syngraph, [child_1, child_2, 
-                outgroup], branch_lengths, rates, params.minimum, params.inference)
+            traversal_0_syngraph, fusion_log, fission_log = median_genome(tree_node.name, traversal_0_syngraph, [child_1, child_2, 
+                outgroup], branch_lengths, params.minimum)
             available_taxa.add(tree_node.name)
+            for i in 0, 1:
+                log.append("{}\t{}\t{}\t{}".format(tree_node.name, [child_1, child_2][i], fusion_log[i], fission_log[i]))
     print("[=] ========================================================================")
-    return traversal_0_syngraph
+    return traversal_0_syngraph, log
 
-def solution_evaluator(rates, solved_syngraph, params):
-    # evaluator should iterate from the children of the root to the leaves
-    if params.inference == "likelihood":
-        print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions\tLikelihood")
-        total_likelihood = 1
-    elif params.inference == "parsimony":
-        print("[=]\tBranch_start\tBranch_end\tBranch_length\tFusions\tFissions")
-    for tree_node in params.tree.traverse(strategy='preorder'):
-        if not tree_node.is_leaf() and not tree_node.is_root():
-            child_1 = tree_node.get_children()[0].name
-            child_2 = tree_node.get_children()[1].name
-            for child in child_1, child_2:
-                parent_child_LMSs, unassignable_markers = get_LMSs(solved_syngraph, [tree_node.name, child], params.minimum)
-                parent_LMS_ios = compact_synteny(solved_syngraph, parent_child_LMSs, tree_node.name, "LMS_syngraph")
-                child_LMS_ios = compact_synteny(solved_syngraph, parent_child_LMSs, child, "LMS_syngraph")
-                fusions, fissions, fusion_log = ffsd(compact_synteny(None, child_LMS_ios, 
-                    [value for value in parent_LMS_ios.values()], "index_index"))
-                if params.inference == "likelihood":
-                    likelihood = 1
-                    likelihood *= stats.poisson.pmf(fissions, rates[0]*tree_node.get_distance(child))
-                    likelihood *= stats.poisson.pmf(fusions, rates[1]*tree_node.get_distance(child))
-                    total_likelihood *= likelihood
-                    print("[=]\t{}\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, 
-                        fissions, likelihood))
-                if params.inference == "parsimony":
-                    print("[=]\t{}\t{}\t{}\t{}\t{}".format(tree_node.name, child, tree_node.get_distance(child), fusions, 
-                        fissions))
-    if params.inference == "likelihood":               
-        print("[=] Rates:\t{}\t{}".format(rates[0], rates[1]))            
-        print("[=] Total likelihood:\t{}".format(total_likelihood))
-        print("[=] ========================================================================")
-        return total_likelihood
-    if params.inference == "parsimony":
-        return None
-        print("[=] ========================================================================")
 
 #############################################################################################
 #############################################################################################
