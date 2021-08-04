@@ -1,13 +1,15 @@
 """
 
-Usage: syngraph infer -g <FILE> -t <NWK> [-m <INT> -o <STR> -h]
+Usage: syngraph infer -g <FILE> -t <NWK> -s <STR> [-m <INT> -r <STR> -o <STR> -h]
 
   [Options]
-    -g, --syngraph <FILE>                       Syngraph file
-    -t, --tree <NWK>                            Tree in Newick format
-    -m, --minimum <INT>                         Minimum number of markers for a synteny relationship [default: 5]
-    -o, --outprefix <STR>                       Outprefix [default: test]
-    -h, --help                                  Show this message
+    -g, --syngraph <FILE>        Syngraph file
+    -t, --tree <NWK>             Tree in Newick format
+    -m, --minimum <INT>          Minimum number of markers for a synteny relationship [default: 5]
+    -r, --rearrangements <INT>   Rearrangements to be modelled: 2 (fission+fusion) or 3 (fission+fusion+translocation) [default: 2]
+    -s, --reference_taxon <STR>  Optional taxon name to map ancestral seqs to
+    -o, --outprefix <STR>        Outprefix [default: test]
+    -h, --help                   Show this message
 
 """
 
@@ -20,14 +22,17 @@ import random
 from functools import partial
 from timeit import default_timer as timer
 from source import syngraph as sg
+import pandas as pd
 
 
 class ParameterObj():
     def __init__(self, args):
         self.syngraph = self._get_path(args['--syngraph'])
         self.tree = self._get_tree(args['--tree'])
-        self.outprefix = args['--outprefix']
         self.minimum = int(args['--minimum'])
+        self.model = self._check_model(int(args['--rearrangements']))
+        self.outprefix = args['--outprefix']
+        self.reference = args['--reference_taxon']
 
     def _get_path(self, infile):
         path = pathlib.Path(infile).resolve()
@@ -44,6 +49,15 @@ class ParameterObj():
         print("")
         return tree
 
+    def _check_model(self, model):
+        if model not in [2, 3]:
+            sys.exit("[X] Invalid model specified: %r" % str(model))
+        return model
+
+def check_tree_syngraph_concordance(tree, syngraph):
+    for leaf in tree.get_leaves():
+        if leaf.name not in syngraph.graph['taxa']:
+            sys.exit("\n[X] A leaf in the tree, {}, is not in the syngraph.\n".format(leaf.name))
 
 def main(run_params):
     try:
@@ -55,23 +69,38 @@ def main(run_params):
         print("[+] Creating Syngraph from file ...")
         syngraph = sg.Syngraph()
         syngraph.from_file(parameterObj.syngraph)
+        check_tree_syngraph_concordance(parameterObj.tree, syngraph)
         print("[+] Show Syngraph metrics ...")
         syngraph.show_metrics()
         random.seed(44)
 
-        #### TO DO LIST AND QUESTIONS
-        ####
-        #### Should the traversals be recursive?
-        #### How easy would including RTs be?
-        #### Could adding in unassignables cause problems in later traversals?
-
         solved_syngraph, log = sg.tree_traversal(syngraph, parameterObj)
-        with open("{}.tsv".format(parameterObj.outprefix), 'w') as fh:
-            fh.write("\n".join(log))
+        mapped_log = sg.map_log(log, parameterObj.reference, solved_syngraph, parameterObj.minimum)
+        clusters = sg.clusters_by_descent(log, parameterObj.tree)
+
+        mapped_log_df = pd.DataFrame(mapped_log)
+        clusters_df = pd.DataFrame(clusters)
+        mapped_log_tsv = mapped_log_df.to_csv(sep="\t", header=None, index=None)
+        clusters_tsv = clusters_df.to_csv(sep="\t", header=None, index=None)
+
+        with open("{}.rearrangements.tsv".format(parameterObj.outprefix), 'w') as fh:
+            fh.write(mapped_log_tsv)
             fh.write("\n")
-        with open("{}.newick.txt".format(parameterObj.outprefix), 'w') as fh:
+        with open("{}.clusters.tsv".format(parameterObj.outprefix), 'w') as fh:
+            fh.write(clusters_tsv)
+            fh.write("\n")
+        with open("{}.newick.ascii".format(parameterObj.outprefix), 'w') as fh:
             fh.write(parameterObj.tree.get_ascii())
             fh.write("\n")
+        with open("{}.newick.txt".format(parameterObj.outprefix), 'w') as fh:
+            fh.write(parameterObj.tree.write(format=1))
+            fh.write("\n")
+
+        print("[+] Save Syngraph to file ...")
+        graph_file = solved_syngraph.save(parameterObj, check_consistency=False, with_ancestors=True)
+        print("[+] Saved Syngraph in %r" % graph_file)
+
+
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
     except KeyboardInterrupt:
         sys.stderr.write("\n[X] Interrupted by user after %s seconds!\n" % (timer() - main_time))
@@ -79,3 +108,16 @@ def main(run_params):
 
 if __name__ == '__main__':
     main()
+
+
+# label branches on tree, output as ascii
+# can split tsv up:
+#
+# event summary:
+#   branch, event_type,    event_ID,
+# 
+# event details:   
+#   event_ID,    LMS representation before/after event (backwards in time)
+#
+# starting point:
+#   taxon, LMS representation

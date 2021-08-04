@@ -81,10 +81,8 @@ def main(run_params):
         syngraph.from_markerObjs(markerObjs)
         print("[+] Show Syngraph metrics ...")
         syngraph.show_metrics()
-        print("[+] Show Jaccard matrix ...")
-        syngraph.taxon_jaccard()
         print("[+] Save Syngraph to file ...")
-        graph_file = syngraph.save(parameterObj, check_consistency=True)
+        graph_file = syngraph.save(parameterObj, check_consistency=True, with_ancestors=False)
         print("[+] Saved Syngraph in %r" % graph_file)
         print("[*] Total runtime: %.3fs" % (timer() - main_time))
     except KeyboardInterrupt:
