@@ -7,7 +7,7 @@ Usage: syngraph infer -g <FILE> -t <NWK> -s <STR> [-m <INT> -r <STR> -o <STR> -h
     -t, --tree <NWK>             Tree in Newick format
     -m, --minimum <INT>          Minimum number of markers for a synteny relationship [default: 5]
     -r, --rearrangements <INT>   Rearrangements to be modelled: 2 (fission+fusion) or 3 (fission+fusion+translocation) [default: 2]
-    -s, --reference_taxon <STR>  Optional taxon name to map ancestral seqs to
+    -s, --reference_taxon <STR>  Taxon name to map ancestral seqs to
     -o, --outprefix <STR>        Outprefix [default: test]
     -h, --help                   Show this message
 
@@ -59,6 +59,10 @@ def check_tree_syngraph_concordance(tree, syngraph):
         if leaf.name not in syngraph.graph['taxa']:
             sys.exit("\n[X] A leaf in the tree, {}, is not in the syngraph.\n".format(leaf.name))
 
+def check_reference_syngraph_concordance(reference, syngraph):
+    if reference not in syngraph.graph['taxa']:
+        print("\n[X] WARNING: The reference taxon, {}, is not in the syngraph.\n".format(reference))
+
 def main(run_params):
     try:
         main_time = timer()
@@ -75,6 +79,7 @@ def main(run_params):
         random.seed(44)
 
         solved_syngraph, log = sg.tree_traversal(syngraph, parameterObj)
+        check_reference_syngraph_concordance(parameterObj.reference, solved_syngraph)
         mapped_log = sg.map_log(log, parameterObj.reference, solved_syngraph, parameterObj.minimum)
         clusters = sg.clusters_by_descent(log, parameterObj.tree)
 

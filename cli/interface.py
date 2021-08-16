@@ -7,7 +7,6 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
     infer               Model rearrangements over a tree
     query               Get info on inferred ancestral genomes
     viz                 Visualise graph/data [TBI]
-    synulate            Simulate graphs [TBI]
     
   [Options]
     -h, --help          Show this screen.
@@ -47,9 +46,6 @@ def main():
         elif args['<module>'] == 'viz':
             import cli.viz as viz
             viz.main(run_params)
-        elif args['<module>'] == 'simulate':
-            import cli.simulate as simulate
-            simulate.main(run_params)
         else:
             sys.exit("%r is not a syngraph module. See 'syngraph -help'." % args['<module>'])
     except KeyboardInterrupt:

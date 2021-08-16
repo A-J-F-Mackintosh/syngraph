@@ -9,10 +9,10 @@ Usage: syngraph build -d <DIR> [-l <STR>] [-g <FILE>] [-m|-M] [-f|-F] [-s] [-o <
                                                     - BUSCO (v4.0.3+) TAXONNAME.*.full_table.tsv files, if '-l busco'
                                                     - BED files TAXONNAME.*.bed files (where TAXONNAME is in header of Orthogroups.tsv, if '-l ortho'
     -o, --outprefix <STR>                       Outprefix [default: test]
-    -m, --missing                               Allow markers that are missing in ≥1 taxa (not implemented)
+    -m, --missing                               Allow markers that are missing in ≥1 taxa
     -M, --ignore_missing                        Ignore markers that are missing in ≥1 taxa (default)
     -f, --fragmented                            Allow fragmented markers (default)
-    -F, --ignore_fragmented                     Ignore fragmented markers 
+    -F, --ignore_fragmented                     Ignore fragmented markers
     -s, --sign                                  Use sign information 
     -h, --help                                  Show this screen.
 
