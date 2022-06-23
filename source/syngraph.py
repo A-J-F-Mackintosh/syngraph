@@ -509,7 +509,7 @@ def median_genome(tree_node, working_syngraph, taxa, branch_lengths, minimum, mo
 
 def tree_traversal(syngraph, params):
     # write a log header
-    log = [["parent", "child", "event", "multiplicity", "markers"]]
+    log = [["#parent", "child", "event", "multiplicity", "ref_seqs"]]
     # copy syngraph
     traversal_0_syngraph = copy.deepcopy(syngraph)
     # define which taxa are extant and so can be sampled from the start

@@ -31,9 +31,16 @@ class ParameterObj():
 
 def collect_info_from_graph(syngraph):
     info = []
+    taxa_in_syngraph = list(syngraph.graph['taxa'])
+    header = ["#marker"]
+    for taxon in taxa_in_syngraph:
+        header.append(taxon + "_seq")
+        header.append(taxon + "_start")
+        header.append(taxon + "_end")
+    info.append(header)
     for graph_node_id in syngraph.nodes:
         entry = [graph_node_id]
-        for taxon in syngraph.graph['taxa']:
+        for taxon in taxa_in_syngraph:
             if taxon in syngraph.nodes[graph_node_id]['taxa']:
                 entry.append(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
                 if taxon in syngraph.nodes[graph_node_id]['starts_by_taxon']:
