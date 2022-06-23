@@ -18,117 +18,48 @@ import random
 import copy
 
 
+#############################################################################################
+################# function for loading a graph from marker objects ##########################
+#############################################################################################
+
 def load_markerObjs(parameterObj):
     '''
     marker := orthogroup/busco
     locus := protein i.e. position of "marker" in genome of taxon
 
-    - independent of "status", all markers/loci should be parsed into markerObjs
-    - sort them out when loading into syngraph (syngraph has to know about allowed statuses, pass as args upon __init__)
-
     '''
-    if parameterObj.label == 'busco':
-        tmp_markerObjs = []
-        status_allowed = {'Complete'}
-        if parameterObj.fragmented:
-            status_allowed.add('Fragmented') 
-        for label, infiles in parameterObj.infiles_by_label.items(): # this might be needed later when OrthoFinder parsing is implemented...
-            for infile in infiles:
-                taxon_markerObjs = []
-                taxon = infile.split("/")[-1].split(".")[0]
-                df = pd.read_csv(infile, 
-                        sep='\t', 
-                        names=['name', 'status', 'seq', 'start', 'end', 'sign'], 
-                        dtype={'name': str, 'status': str , 'seq': str, 'start': float, 'end': float, 'sign': str}
-                        ).sort_values(['seq', 'start'], ascending=[True, True])
-                for idx, (name, status, seq, start, end, sign) in enumerate(df.values.tolist()):
-                    if status in status_allowed:
-                        if parameterObj.sign:
-                            if sign == "+":
-                                coords_by_name = {"%s_head" % name: start, "%s_tail" % name: end}
-                            elif sign == "-":
-                                coords_by_name = {"%s_head" % name: end, "%s_tail" % name: start}
-                            else:
-                                sys.exit("[X] Sign must be '+' or '-' in line %r in file %r, not %r" % (idx, infile, sign))
-                            for _name, _coord in coords_by_name.items():
-                                markerObj= MarkerObj(name=_name, status=status, taxon=taxon, seq=taxon+"_"+seq, coord=_coord)
-                                taxon_markerObjs.append(markerObj)
-                        else:
-                            markerObj = MarkerObj(name=name, status=status, taxon=taxon, seq=taxon+"_"+seq, coord=start)
-                            taxon_markerObjs.append(markerObj)
-                taxon_markerObjs = sorted(taxon_markerObjs, key=attrgetter('seq', 'coord'))
-                tmp_markerObjs.extend(taxon_markerObjs)
-            if parameterObj.missing == True:
-                return tmp_markerObjs
-            else:
-                markerObjs = []
-                counter = collections.Counter([tmp.name for tmp in tmp_markerObjs])
-                for markerObj in tmp_markerObjs:
-                    if counter[markerObj.name] == len(infiles):
-                        markerObjs.append(markerObj)
-                return markerObjs
-    elif parameterObj.label == 'ortho':
-        '''
-        not dealing yet with:
-        - missing
-        - duplicates
-        '''
-        orthogroup_df = pd.read_csv(parameterObj.orthogroups, sep='\t')
-        header = orthogroup_df.columns.values.tolist()
-        marker_by_locus_by_taxon = collections.defaultdict(dict)
-        locus_by_taxon_by_marker = collections.defaultdict(dict)
-        locus_by_type_by_taxon = collections.defaultdict(lambda: collections.defaultdict(set))
-        taxa = []
-        for row in orthogroup_df.values.tolist():
-            marker = row[0]
-            for taxon, loci in zip(header[1:], row[1:]):
-                if isinstance(loci, str):
-                    for locus in loci.split(", "):                        
-                        marker_by_locus_by_taxon[taxon][locus] = marker
-                        locus_by_taxon_by_marker[marker][taxon] = locus
-                        locus_by_type_by_taxon[taxon]['tsv'].add(locus)
+    tmp_markerObjs = []
+    for infile in parameterObj.infiles:
+        taxon_markerObjs = []
+        taxon = infile.split("/")[-1].split(".")[0]
+        df = pd.read_csv(infile, 
+                sep='\t', 
+                names=['name', 'seq', 'start', 'end'], 
+                dtype={'name': str, 'seq': str, 'start': int, 'end': int}
+                ).sort_values(['seq', 'start'], ascending=[True, True])
+        for idx, (name, seq, start, end) in enumerate(df.values.tolist()):
+            markerObj = MarkerObj(name=name, taxon=taxon, seq=taxon+"_"+seq, start=start, end=end)
+            taxon_markerObjs.append(markerObj)
+        taxon_markerObjs = sorted(taxon_markerObjs, key=attrgetter('seq', 'start'))
+        tmp_markerObjs.extend(taxon_markerObjs)
+    if parameterObj.missing == True:
+        return tmp_markerObjs
+    else:
         markerObjs = []
-        locus_types = ['bed', 'tsv', 'both', 'not_bed', 'not_tsv']
-        for label, infiles in parameterObj.infiles_by_label.items():
-            for infile in tqdm(infiles, total=len(infiles), desc="[%] ", ncols=100):
-                taxon = infile.split("/")[-1].split(".")[0]
-                taxa.append(taxon)
-                bed_df = pd.read_csv(infile, sep='\t', 
-                    names=['seq', 'start', 'end', 'desc'], 
-                    dtype={'seq': str, 'start': int , 'end': int, 'desc': str})
-                for idx, (seq, start, end, locus) in enumerate(bed_df.values.tolist()):
-                    locus_by_type_by_taxon[taxon]['bed'].add(locus)
-                    marker = marker_by_locus_by_taxon[taxon].get(locus, None)
-                    if not marker is None:
-                        if len(locus_by_taxon_by_marker[marker][taxon]) > 1:
-                            status = 'Duplicted'
-                        elif len(locus_by_taxon_by_marker[marker][taxon]) == 1:
-                            status = 'Single'
-                        else:
-                            sys.exit("[X] %s" % (idx, seq, start, end, locus))
-                        markerObj = MarkerObj(name=marker, desc=locus, status=status, taxon=taxon, seq=taxon+"_"+seq, coord=start)
-                        markerObjs.append(markerObj)
-                locus_by_type_by_taxon[taxon]['both'] = locus_by_type_by_taxon[taxon]['tsv'].intersection(locus_by_type_by_taxon[taxon]['bed'])
-                locus_by_type_by_taxon[taxon]['not_bed'] = locus_by_type_by_taxon[taxon]['tsv'] - locus_by_type_by_taxon[taxon]['bed']
-                locus_by_type_by_taxon[taxon]['not_tsv'] = locus_by_type_by_taxon[taxon]['bed'] - locus_by_type_by_taxon[taxon]['tsv']
-        # Sanity check whether all loci were found in both TSV and BED
-        for taxon in taxa:
-            if not len(locus_by_type_by_taxon[taxon]['tsv']) == len(locus_by_type_by_taxon[taxon]['both']):
-                print("[-] Not all loci in Orthogroups file were found in BED file: %s" % taxon)
-                for locus_type in locus_types:
-                    print("[-]\t%s: %s [%s...]" % (locus_type, len(locus_by_type_by_taxon[taxon][locus_type]), ",".join(list(locus_by_type_by_taxon[taxon][locus_type])[0:3])))
+        counter = collections.Counter([tmp.name for tmp in tmp_markerObjs])
+        for markerObj in tmp_markerObjs:
+            if counter[markerObj.name] == len(infiles):
+                markerObjs.append(markerObj)
         return markerObjs
 
 
 #############################################################################################
-################################################################################:)###########
-### below are functions for implementing fusion + fission models ############################
-################################################################################:(###########
+### below are functions that infer and other modules rely on ################################
 #############################################################################################
 
 # a function for getting the closest outgroup to a tree node
 # outgroup must be in 'available_taxa' and cannot be a descenant of the tree_node or the tree_nodes itself
-def get_closest_outgroup(tree, tree_node, available_taxa):
+def get_closest_outgroup(tree, tree_node, available_taxa): # should this be branch or toplogical distance?
     closest_taxon_so_far = None
     closest_distance_so_far = float("inf")
     for some_tree_node in tree.search_nodes():
@@ -148,31 +79,38 @@ def get_branch_distances(tree, tree_node_A, tree_node_B):
     down_distance = mrca.get_distance(tree_node_B)
     return up_distance, down_distance
 
+# write the genome of a taxon in terms of LMSs
 def compact_synteny_1(syngraph, LMSs, taxon):
-    chrom2LMS = collections.defaultdict(set)
+    chrom2LMS = GenomeObj()
     for graph_node_id in syngraph.nodes():
         for LMS in LMSs:
             if graph_node_id in LMSs[LMS]:
-                chrom2LMS[syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(LMS)
+                chrom2LMS.labelled_CWAL[syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(LMS)
+    chrom2LMS.CWAL = [chromosome for chromosome in chrom2LMS.labelled_CWAL.values()]
     return chrom2LMS
 
+# returns a genome written in terms of another taxon's genome
+# also include a mapping of LMS --> other taxon's chromosomes
 def compact_synteny_2(taxon_A, taxon_B):
-    chrom2chrom2LMS = collections.defaultdict(lambda : collections.defaultdict(set))
-    for B_chrom in taxon_B:
-        for LMS in taxon_B[B_chrom]:
-            for A_chrom in taxon_A:
-                if LMS in taxon_A[A_chrom]:
-                    chrom2chrom2LMS[B_chrom][A_chrom].add(LMS)
-    return chrom2chrom2LMS
+    new_taxon_B = copy.deepcopy(taxon_B)
+    for B_chrom in taxon_B.labelled_CWAL:
+        for LMS in taxon_B.labelled_CWAL[B_chrom]:
+            for A_chrom in taxon_A.labelled_CWAL:
+                if LMS in taxon_A.labelled_CWAL[A_chrom]:
+                    new_taxon_B.labelled_CWAOC[B_chrom].add(A_chrom)
+                    new_taxon_B.LMS_OC[LMS] = A_chrom
+    return new_taxon_B
 
-# chroms have no names when the genome is represented as a list of sets
-# this function can give them a number
+# chroms are not labelled in some GenomeObjs
+# this function can give them a label (labelled_CWAL)
+# or relabels them after permutation
 def label_genome(tree_node, genome, label_count):
     label_state = copy.deepcopy(label_count)
-    labelled_genome = {}
-    for chrom in genome:
+    labelled_genome = copy.deepcopy(genome)
+    labelled_genome.labelled_CWAL = collections.defaultdict(set)
+    for chrom in labelled_genome.CWAL:
         label_state += 1
-        labelled_genome[tree_node + "_" + str(label_state)] = chrom
+        labelled_genome.labelled_CWAL[tree_node + "_" + str(label_state)] = chrom
     return labelled_genome
 
 def get_union_of_chrom_dicts(chrom_dict_A, chrom_dict_B):
@@ -185,28 +123,33 @@ def get_union_of_chrom_dicts(chrom_dict_A, chrom_dict_B):
 def get_all_LMSs_of_a_chrom(instance_of_synteny, chrom):
     LMSs = set()
     for element in instance_of_synteny[chrom]:
-        LMSs = LMSs.union(instance_of_synteny[chrom][element])
+        LMSs.add(element)
     return LMSs
 
 def check_for_fusions(instance_of_synteny, fusion_log, i):
     # can be sped up
-    for combo in itertools.combinations(instance_of_synteny.keys(), 2):
-        if set(instance_of_synteny[combo[0]].keys()).intersection(set(instance_of_synteny[combo[1]].keys())):
-            instance_of_synteny[combo[0]+ "_" + combo[1].split("_", 1)[1]] = \
-            get_union_of_chrom_dicts(instance_of_synteny[combo[0]], instance_of_synteny[combo[1]])
+    for combo in itertools.combinations(instance_of_synteny.labelled_CWAOC, 2):
+        if len(instance_of_synteny.labelled_CWAOC[combo[0]].intersection(instance_of_synteny.labelled_CWAOC[combo[1]])) > 0:
+            instance_of_synteny.labelled_CWAOC[combo[0]+ "_" + combo[1].split("_", 1)[1]] = \
+            instance_of_synteny.labelled_CWAOC[combo[0]].union(instance_of_synteny.labelled_CWAOC[combo[1]])
+            instance_of_synteny.labelled_CWAL[combo[0]+ "_" + combo[1].split("_", 1)[1]] = \
+            instance_of_synteny.labelled_CWAL[combo[0]].union(instance_of_synteny.labelled_CWAL[combo[1]])
             fusion_log.append(["parent_node", i, "fusion", 1, 
-                list([get_all_LMSs_of_a_chrom(instance_of_synteny, combo[0]), 
-                    get_all_LMSs_of_a_chrom(instance_of_synteny, combo[1])])])
-            del instance_of_synteny[combo[0]]
-            del instance_of_synteny[combo[1]]
+                list([get_all_LMSs_of_a_chrom(instance_of_synteny.labelled_CWAL, combo[0]), 
+                    get_all_LMSs_of_a_chrom(instance_of_synteny.labelled_CWAL, combo[1])])])
+            del instance_of_synteny.labelled_CWAOC[combo[0]]
+            del instance_of_synteny.labelled_CWAOC[combo[1]]
+            del instance_of_synteny.labelled_CWAL[combo[0]]
+            del instance_of_synteny.labelled_CWAL[combo[1]]
             return check_for_fusions(instance_of_synteny, fusion_log, i)
     return instance_of_synteny, fusion_log
 
 def check_for_fissions(instance_of_synteny, fission_log, i):
-    for chrom in instance_of_synteny:
-        indices = len(instance_of_synteny[chrom].keys())
+    for chrom in instance_of_synteny.labelled_CWAOC:
+        indices = len(instance_of_synteny.labelled_CWAOC[chrom])
         if indices > 1:
-            fission_log.append(["parent_node", i, "fission", indices-1, get_all_LMSs_of_a_chrom(instance_of_synteny, chrom)])
+            fission_log.append(["parent_node", i, "fission", indices-1, 
+                get_all_LMSs_of_a_chrom(instance_of_synteny.labelled_CWAL, chrom)])
     return fission_log
 
 def ffsd(instance_of_synteny, rearrangement_log, i):
@@ -241,74 +184,70 @@ def get_LMSs(syngraph, list_of_taxa, minimum):
 
 # bubble will combine intersecting sets recursively
 # used for generating connected components
-def bubble(i, connected_components):
+def bubble(i, some_dict):
     bubbled = False
-    for j in range(len(connected_components)):
-        if connected_components[j] != set() and i != j:
-            if len(connected_components[i].intersection(connected_components[j])) > 0:
-                connected_components[i] = connected_components[i].union(connected_components[j])
-                connected_components[j] = set()
+    for j in range(len(some_dict)):
+        if some_dict[j] != set() and i != j:
+            if len(some_dict[i].intersection(some_dict[j])) > 0:
+                some_dict[i] = some_dict[i].union(some_dict[j])
+                some_dict[j] = set()
                 bubbled = True
     if bubbled:
-        return bubble(i, connected_components)
+        return bubble(i, some_dict)
     else:
-        return connected_components
+        return some_dict
 
 def generate_connected_components(ios_1, ios_2, ios_3):
+    connected_components = GenomeObj()
     # get unique chromosomes i.e. LMS relationships
-    connected_components = list(set([frozenset(x) for x in list(ios_1.values()) + list(ios_3.values()) + list(ios_2.values())]))
+    connected_components.CWAL = list(set([frozenset(x) for x in list(ios_1.CWAL) + list(ios_3.CWAL) + list(ios_2.CWAL)]))
     # convert back to sets
-    connected_components = [set(component) for component in connected_components]
+    connected_components.CWAL = [set(component) for component in connected_components.CWAL]
     # for each LMs relationship, bubble
-    for i in range(len(connected_components)):
-        if connected_components[i] != set():
-            connected_components = bubble(i, connected_components)
+    for i in range(len(connected_components.CWAL)):
+        if len(connected_components.CWAL[i]) > 0:
+            connected_components.CWAL = bubble(i, connected_components.CWAL)
     # get rid of empty sets then return
-    connected_components = [component for component in connected_components if component != set()]
+    connected_components.CWAL = [component for component in connected_components.CWAL if component != set()]
+    #print(connected_components.CWAL)
     return connected_components
 
 def generate_parsimony_genome(ios_1, ios_2, ios_3, LMSs):
-    parsimony_genome = []
+    parsimony_genome = GenomeObj()
     synteny_counts = collections.defaultdict(int)
-    observed_chromosomes = list(ios_1.values()) + list(ios_3.values()) + list(ios_2.values())
+    observed_chromosomes = ios_1.CWAL + ios_3.CWAL + ios_2.CWAL
+    # find LMS-LMS edges found in at least two genomes
     for combo in itertools.combinations(LMSs.keys(), 2):
         for observed_chromosome in observed_chromosomes:
             if combo[0] in observed_chromosome and combo[1] in observed_chromosome:
                 synteny_counts[frozenset({combo[0], combo[1]})] += 1
     for combo_key in synteny_counts.keys():
         if synteny_counts[combo_key] == 2:
-            parsimony_genome.append(set(combo_key))
-    for i in range(len(parsimony_genome)):
-        if parsimony_genome[i] != set():
-            parsimony_genome = bubble(i, parsimony_genome)
-    # add in shared LMSs
+            parsimony_genome.CWAL.append(set(combo_key))
+    # bubble to combine intersecting sets
+    for i in range(len(parsimony_genome.CWAL)):
+        if len(parsimony_genome.CWAL[i]) > 0:
+            parsimony_genome.CWAL = bubble(i, parsimony_genome.CWAL)
+    # add in other LMSs
     for LMS in LMSs.keys():
         already_in = False
-        for chrom in parsimony_genome:
+        for chrom in parsimony_genome.CWAL:
             if LMS in chrom:
                 already_in = True
         if not already_in:
-            parsimony_genome.append({LMS})
+            parsimony_genome.CWAL.append({LMS})
     # get rid of empty sets then return
-    parsimony_genome = [component for component in parsimony_genome if component != set()]
+    parsimony_genome.CWAL = [component for component in parsimony_genome.CWAL if len(component) > 0]
     return parsimony_genome
 
-def prune_ios(ioses, connected_component):
-    pruned_ioses = []
-    for ios in ioses:
-        pruned_ios = {}
-        for chrom in ios:
-            if ios[chrom].intersection(connected_component):
-                pruned_ios[chrom] = ios[chrom]
-        pruned_ioses.append(pruned_ios)
-    return pruned_ioses[0], pruned_ioses[1], pruned_ioses[2]
-
-def prune_pg(parsimony_genome, connected_component):
-    pruned_pg = []
-    for chrom in parsimony_genome:
-        if chrom.intersection(connected_component):
-            pruned_pg.append(chrom)
-    return pruned_pg
+def prune_genome(ios, connected_component): # both ios and cc should be GenomeObjs
+    pruned_ios = copy.deepcopy(ios)
+    pruned_chroms = []
+    for chrom in pruned_ios.CWAL:
+        if chrom.intersection(connected_component.CWAL[0]):
+            pruned_chroms.append(chrom)
+    pruned_ios.CWAL = pruned_chroms
+    return pruned_ios
 
 def evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible_median, 
     best_total, best_max_branch_rate, best_genome, best_rearrangement_log, model):
@@ -325,8 +264,10 @@ def evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible
             rearrangement_log  = ffsd(compact_synteny_2(ios, possible_median), rearrangement_log, i)
         # count rearrangements
         for rearrangement in rearrangement_log:
-            if rearrangement[1] == i:
-                    total += rearrangement[3]
+            if rearrangement[1] == i and rearrangement[2] != "translocation":
+                total += rearrangement[3]
+            elif rearrangement[1] == i and rearrangement[2] == "translocation":
+                total += rearrangement[3] * 1.5
         # calculate branch rate, can use this to settle ties
         branch_rate = total / (branch_lengths["up"][i] + branch_lengths["down"][i])
         if branch_rate > max_branch_rate:
@@ -342,21 +283,34 @@ def evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible
         best_rearrangement_log = rearrangement_log
     return best_genome, best_total, best_max_branch_rate, best_rearrangement_log
 
-def exhaustive_solver(tree_node, connected_component, ios_1, ios_2, ios_3, branch_lengths, model, label_count):
+def parsimony_genome_solver(tree_node, parsimony_genome, ios_1, ios_2, ios_3, branch_lengths, model, label_count):
+    best_rearrangement_log = []
+    best_total = float("inf")
+    best_max_branch_rate = float("inf")
+    best_genome = []
+    labelled_parsimony_genome = label_genome(tree_node, parsimony_genome, label_count)
+    best_genome, best_total, best_max_branch_rate, best_rearrangement_log  = \
+    evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, labelled_parsimony_genome, best_total, 
+        best_max_branch_rate, best_genome, best_rearrangement_log, model)
+    # only return the rearrangemnts on branches leading to children
+    return best_genome, \
+    [rearrangement for rearrangement in best_rearrangement_log if rearrangement[1] == 0 or rearrangement[1] == 1]
+
+def exhaustive_solver(tree_node, single_component, ios_1, ios_2, ios_3, branch_lengths, model, label_count):
     best_rearrangement_log = []
     # if there are no 'tangles' then there are no events
-    if len(connected_component) == 1:
-        # reformat as list of sets
-        connected_component = [connected_component]
-        labelled_cc = label_genome(tree_node, connected_component, label_count)
-        return labelled_cc, []
-    # else, generate all possible candidate solutions from the connected component
+    if len(single_component.CWAL[0]) == 1:
+        labelled_single_component = label_genome(tree_node, single_component, label_count)
+        return labelled_single_component, []
+    # else, generate all possible candidate solutions from the single component
     # i.e. all set partitions
     else:
         possible_medians = []
-        for par in more_itertools.set_partitions(connected_component):
+        for par in more_itertools.set_partitions(single_component.CWAL[0]):
             par = [set(pa) for pa in par]
-            possible_medians.append(par)
+            possible_median = GenomeObj()
+            possible_median.CWAL = par
+            possible_medians.append(possible_median)
         # now evaluate candidate genomes
         best_total = float("inf")
         best_max_branch_rate = float("inf") # use this to solve ties
@@ -366,53 +320,52 @@ def exhaustive_solver(tree_node, connected_component, ios_1, ios_2, ios_3, branc
             best_genome, best_total, best_max_branch_rate, best_rearrangement_log  = \
             evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible_median, best_total, 
                 best_max_branch_rate, best_genome, best_rearrangement_log, model)
+        # only return the rearrangemnts on branches leading to children
         return best_genome, \
         [rearrangement for rearrangement in best_rearrangement_log if rearrangement[1] == 0 or rearrangement[1] == 1]
 
-# permutations by fusion should only fuse LMSs found in the same connected component
 def permute_genome_by_fusion(genome):
-    if len(genome) == 1:
+    if len(genome.CWAL) == 1: # can't fuse if only 1 chromosome
         return genome
     else:
         temp_genome = copy.deepcopy(genome)
-        sampled_chroms = random.sample(temp_genome, 2)
+        sampled_chroms = random.sample(temp_genome.CWAL, 2)
+        temp_genome.CWAL.append(sampled_chroms[0].union(sampled_chroms[1]))
         for chrom in sampled_chroms:
-            temp_genome.remove(chrom)
-            temp_genome.append(sampled_chroms[0].union(sampled_chroms[1]))
+            temp_genome.CWAL.remove(chrom)
         return temp_genome
 
 def permute_genome_by_fission(genome):
-    if max([len(chrom) for chrom in genome]) == 1:
+    if max([len(chrom) for chrom in genome.CWAL]) == 1: # can't fission single LMS chromosomes
         return genome
     else:
         temp_genome = copy.deepcopy(genome)
-        samplable_chroms = [chrom for chrom in temp_genome if len(chrom) > 1]
-        sampled_chrom = random.sample(samplable_chroms, 1)
-        temp_genome.remove(sampled_chrom[0])
-        sampled_int = random.sample(range(1, len(sampled_chrom[0])), 1)[0]
+        samplable_chroms = [chrom for chrom in temp_genome.CWAL if len(chrom) > 1]
+        sampled_chrom = random.sample(samplable_chroms, 1)[0]
+        temp_genome.CWAL.remove(sampled_chrom)
+        sampled_int = random.sample(range(1, len(sampled_chrom)), 1)[0]
         fission_product_1 = set()
         fission_product_2 = set()
-        for index in random.sample(sampled_chrom[0], sampled_int):
+        for index in random.sample(sampled_chrom, sampled_int):
             fission_product_1.add(index)
-        for index in sampled_chrom[0]:
+        for index in sampled_chrom:
             if index not in fission_product_1:
                 fission_product_2.add(index)
-        temp_genome.append(fission_product_1)
-        temp_genome.append(fission_product_2)
+        temp_genome.CWAL.append(fission_product_1)
+        temp_genome.CWAL.append(fission_product_2)
         return temp_genome
 
-def heuristic_solver(tree_node, connected_component, ios_1, ios_2, ios_3, parsimony_genome, branch_lengths, model, label_count):
+def heuristic_solver(tree_node, ios_1, ios_2, ios_3, parsimony_genome, branch_lengths, model, label_count):
     print("[+] There are many possible genomes at this node so syngraph will undertake a heuristic search.", \
         "To avoid this, consider increasing the -m parameter.")
     print("[+] Searching ...")
     best_total = float("inf")
     best_max_branch_rate = float("inf")
-    best_genome = []
+    best_genome = None
     best_rearrangement_log = []
-    # prune parsimony genome for only chromosomes in the connected component
-    starting_genome = prune_pg(parsimony_genome, connected_component)
+    starting_genome = copy.deepcopy(parsimony_genome)
     # peturb the parsimony genome using a decreasing random walk
-    for rw_param in [[9, 1000], [7, 1000], [5, 1000], [3, 1000], [1, 1000]]:
+    for rw_param in [[9, 2000], [7, 2000], [5, 2000], [3, 2000], [1, 2000]]:
         rw_length = rw_param[0]
         rw_iterations = rw_param[1]
         for iteration in range(0, rw_iterations):
@@ -431,7 +384,7 @@ def heuristic_solver(tree_node, connected_component, ios_1, ios_2, ios_3, parsim
             best_genome, best_total, best_max_branch_rate, best_rearrangement_log  = \
             evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, rw_genome, best_total, best_max_branch_rate, 
                 best_genome, best_rearrangement_log , model)
-        starting_genome = [value for value in best_genome.values()]
+        starting_genome = best_genome
     return best_genome, \
     [rearrangement for rearrangement in best_rearrangement_log if rearrangement[1] == 0 or rearrangement[1] == 1]
 
@@ -501,36 +454,50 @@ def median_genome(tree_node, working_syngraph, taxa, branch_lengths, minimum, mo
     ios_1 = compact_synteny_1(working_syngraph, LMSs, taxa[0])
     ios_2 = compact_synteny_1(working_syngraph, LMSs, taxa[1])
     ios_3 = compact_synteny_1(working_syngraph, LMSs, taxa[2])
+    # generate connected components
     connected_components = generate_connected_components(ios_1, ios_2, ios_3)
-    # generate a genome where edges with frequency = 2 are used to resolve connected components
-    # this is used if the search space within a connect component is very high
+    # generate a genome where edges with frequency >= 2 are used to resolve connected components
     parsimony_genome = generate_parsimony_genome(ios_1, ios_2, ios_3, LMSs)
-    print("[=] Generated {} connected components".format(len(connected_components)))
-    solved_connected_components = {}
+    print("[=] Generated {} connected components".format(len(connected_components.CWAL)))
+    solved_connected_components = GenomeObj()
     triplet_rearrangement_log = []
     label_count = 0
-    # now check whether, for each connected component, the best arrangement can be found exhaustively
-    # and then call the appropriate solving function
-    for connected_component in connected_components:
-        # remove LMSs in ioses that are not within the connected component
-        pruned_ios_1, pruned_ios_2, pruned_ios_3 = prune_ios([ios_1, ios_2, ios_3], connected_component)
-        if len(connected_component) > 10:
-            # solve heuristicly
-            solved_connected_component, new_rearrangements = heuristic_solver(tree_node, connected_component, pruned_ios_1, 
-                pruned_ios_2, pruned_ios_3, parsimony_genome, branch_lengths, model, label_count)
-        else:
-            # solve exhaustively
-            solved_connected_component, new_rearrangements = exhaustive_solver(tree_node, connected_component, pruned_ios_1, 
-                pruned_ios_2, pruned_ios_3, branch_lengths, model, label_count)
+    # for fission+fusion we can just use the parsimony genome
+    if model == 2:
+        solved_connected_component, new_rearrangements = parsimony_genome_solver(tree_node, 
+            parsimony_genome, ios_1, ios_2, ios_3, branch_lengths, model, label_count)
         # update solution, log, and labels
-        solved_connected_components.update(solved_connected_component)
+        solved_connected_components.labelled_CWAL.update(solved_connected_component.labelled_CWAL)
         triplet_rearrangement_log += new_rearrangements
-        label_count += len(solved_connected_component)
-    print("[=] Found a median genome with {} chromosomes".format(len(solved_connected_components)))
+        label_count += len(solved_connected_component.labelled_CWAL.keys())
+    # for more complex models
+    # check whether, for each connected component, the best arrangement can be found exhaustively
+    # and then call the appropriate solving function
+    else:
+        for connected_component in connected_components.CWAL:
+            single_component = GenomeObj()
+            single_component.CWAL.append(connected_component)
+            # pruning gives the connected component specific data
+            if len(connected_component) > 10:
+                # solve heuristicly
+                solved_connected_component, new_rearrangements = heuristic_solver(tree_node, 
+                    prune_genome(ios_1, single_component), prune_genome(ios_2, single_component), 
+                    prune_genome(ios_3, single_component), prune_genome(parsimony_genome, single_component), branch_lengths, 
+                    model, label_count) 
+            else:
+                # solve exhaustively
+                solved_connected_component, new_rearrangements = exhaustive_solver(tree_node, single_component, 
+                    prune_genome(ios_1, single_component), prune_genome(ios_2, single_component), 
+                    prune_genome(ios_3, single_component), branch_lengths, model, label_count)
+            # update solution, log, and labels
+            solved_connected_components.labelled_CWAL.update(solved_connected_component.labelled_CWAL)
+            triplet_rearrangement_log += new_rearrangements
+            label_count += len(solved_connected_component.labelled_CWAL.keys())
+    print("[=] Found a median genome with {} chromosomes".format(len(solved_connected_components.labelled_CWAL.keys())))
     # from solved_connected_components, add this new ancestral genome to a syngraph
     working_syngraph.graph['taxa'].add(tree_node)
-    for chrom in solved_connected_components:
-        for LMS in solved_connected_components[chrom]:
+    for chrom in solved_connected_components.labelled_CWAL.keys():
+        for LMS in solved_connected_components.labelled_CWAL[chrom]:
             for graph_node_id in LMSs[LMS]:
                 working_syngraph.nodes[graph_node_id]['taxa'].add(tree_node)
                 working_syngraph.nodes[graph_node_id]['seqs_by_taxon'][tree_node] = chrom
@@ -546,14 +513,12 @@ def tree_traversal(syngraph, params):
     # copy syngraph
     traversal_0_syngraph = copy.deepcopy(syngraph)
     # define which taxa are extant and so can be sampled from the start
-    available_taxa = set()
-    for leaf in params.tree.get_leaves():
-        available_taxa.add(leaf.name)
-    print("[+] Starting first traversal ...")
+    available_taxa = set([leaf.name for leaf in params.tree.get_leaves()])
+    print("[+] Starting traversal ...")
     print("[+] ========================================================================")
     # are there still unsolved nodes? If yes, then keeping solving
     nodes_left = True
-    while nodes_left == True:
+    while nodes_left:
         # store info about easiest triplet to solve in a list
         best_triplet = [None, None, float("inf")]
         for tree_node in params.tree.traverse(strategy='postorder'):
@@ -567,8 +532,8 @@ def tree_traversal(syngraph, params):
                     evaluation = evaluate_triplet([child_1, child_2, outgroup], traversal_0_syngraph, params.minimum)
                     if evaluation < best_triplet[2]:
                         best_triplet = [[child_1, child_2, outgroup], tree_node.name, evaluation]
-                    if evaluation == 0:
-                        break
+                        if evaluation == 0:
+                            break
         # if no more triplets to solve then we are done
         if best_triplet == [None, None, float("inf")]:
             nodes_left = False
@@ -611,20 +576,20 @@ def evaluate_triplet(taxa, syngraph, minimum):
     return smallest
 
 #############################################################################################
-###### Below are functions for a fission + fusion + translocation model #####################
+###### below are functions for a fission + fusion + translocation model #####################
 #############################################################################################
 
 def ferretti(instance_of_synteny, rearrangement_log, i):
     # ios -> chrom -> element(s) (chrom(s) mapped to in target genome) --> LMS(s)
     # remove chroms that are already solved
     instance_of_synteny = strip_chromes(instance_of_synteny)
-    if len(instance_of_synteny) == 0:
+    if len(instance_of_synteny.labelled_CWAOC.keys()) == 0:
         return rearrangement_log
     else:
         # get element multiplicy (l) and minimum syntenic element multiplicity (r_min)
         # actually not sure if we need r_min...
         l_dict = get_l(instance_of_synteny)
-        # if there are elements with l=1 # no, don't do this first! Messes up translocations sequences.
+        # if there are elements with l=1 # should we do this first?
         if 1 in l_dict.values():
             # pick a chrom with l=1
             small_l_element = sample_small_l(l_dict, 1)
@@ -656,34 +621,35 @@ def ferretti(instance_of_synteny, rearrangement_log, i):
 
 def strip_chromes(ios):
     chromes_to_be_stripped = []
-    for chrom in ios:
-        if len(ios[chrom].keys()) == 1:
+    for chrom in ios.labelled_CWAOC:
+        if len(ios.labelled_CWAOC[chrom]) == 1:
             multiplicity = 0
-            for chrom_2 in ios:
-                if list(ios[chrom].keys())[0] in ios[chrom_2].keys():
+            for chrom_2 in ios.labelled_CWAOC:
+                if list(ios.labelled_CWAOC[chrom])[0] in ios.labelled_CWAOC[chrom_2]:
                     multiplicity += 1
-            if multiplicity == 1:
+            if multiplicity == 1: # i.e. it is a chrom that does not need to be rearranged
                 chromes_to_be_stripped.append(chrom)
     for chrom in chromes_to_be_stripped:
-        ios.pop(chrom, None)
+        ios.labelled_CWAL.pop(chrom, None)
+        ios.labelled_CWAOC.pop(chrom, None)
     return ios
 
 def get_l(ios):
     l_dict = collections.defaultdict(int)
-    for chrom in ios:
-        for element in ios[chrom]:
+    for chrom in ios.labelled_CWAOC:
+        for element in ios.labelled_CWAOC[chrom]:
             l_dict[element] += 1
     return l_dict
 
-def get_r_min(ios, l_dict):
-    r_min_dict = collections.defaultdict(lambda:float("inf"))
-    for chrom in ios:
-        for element in ios[chrom]:
-            for other_element in ios[chrom]:
-                if other_element != element:
-                    if l_dict[other_element] < r_min_dict[element]:
-                        r_min_dict[element] = l_dict[other_element]
-    return r_min_dict
+# def get_r_min(ios, l_dict):
+#     r_min_dict = collections.defaultdict(lambda:float("inf"))
+#     for chrom in ios:
+#         for element in ios[chrom]:
+#             for other_element in ios[chrom]:
+#                 if other_element != element:
+#                     if l_dict[other_element] < r_min_dict[element]:
+#                         r_min_dict[element] = l_dict[other_element]
+#     return r_min_dict
 
 def sample_small_l(l_dict, l_min):
     potential_small_l = set()
@@ -693,47 +659,67 @@ def sample_small_l(l_dict, l_min):
     return random.sample(potential_small_l, 1)[0]
 
 def implement_fission_1(ios, element, fission_log, i):
-    for chrom in ios:
-        if element in list(ios[chrom].keys()):
-            ios[chrom + "_a"][element] = ios[chrom][element]
-            for other_elements in list(ios[chrom].keys()):
+    for chrom in ios.labelled_CWAOC:
+        if element in ios.labelled_CWAOC[chrom]:
+            ios.labelled_CWAOC[chrom + "_a"].add(element)
+            for LMS in ios.labelled_CWAL[chrom]:
+                if ios.LMS_OC[LMS] == element:
+                    ios.labelled_CWAL[chrom + "_a"].add(LMS)
+            for other_elements in ios.labelled_CWAOC[chrom]:
                 if other_elements != element:
-                    ios[chrom + "_b"][other_elements] = ios[chrom][other_elements]
-            fission_log.append(["parent_node", i, "fission", 1, get_all_LMSs_of_a_chrom(ios, chrom)])
-            ios.pop(chrom, None)
+                    ios.labelled_CWAOC[chrom + "_b"].add(other_elements)
+                    for LMS in ios.labelled_CWAL[chrom]:
+                        if ios.LMS_OC[LMS] == other_elements:
+                            ios.labelled_CWAL[chrom + "_b"].add(LMS)
+            fission_log.append(["parent_node", i, "fission", 1, get_all_LMSs_of_a_chrom(ios.labelled_CWAL, chrom)])
+            ios.labelled_CWAOC.pop(chrom, None)
+            ios.labelled_CWAL.pop(chrom, None)
             return ios, fission_log
 
 def check_l_2_status(ios, element):
     chrom_content = []
-    for chrom in ios:
-        if element in list(ios[chrom].keys()):
+    for chrom in ios.labelled_CWAOC:
+        if element in ios.labelled_CWAOC[chrom]:
             chrom_content.append(chrom)
-    if len(ios[chrom_content[0]].keys()) >= 2 and len(ios[chrom_content[1]].keys()) >= 2:
+    if len(ios.labelled_CWAOC[chrom_content[0]]) >= 2 and len(ios.labelled_CWAOC[chrom_content[1]]) >= 2:
         return "translocation", chrom_content
     else:
         return "fusion", chrom_content
 
 def implement_fusion_2(ios, chrom_content, fusion_log, i):
-    ios[chrom_content[0] + "_" + chrom_content[1].split("_", 1)[1]] = \
-    get_union_of_chrom_dicts(ios[chrom_content[0]], ios[chrom_content[1]])
+    ios.labelled_CWAOC[chrom_content[0] + "_" + chrom_content[1].split("_", 1)[1]] = \
+    ios.labelled_CWAOC[chrom_content[0]].union(ios.labelled_CWAOC[chrom_content[1]])
+    ios.labelled_CWAL[chrom_content[0] + "_" + chrom_content[1].split("_", 1)[1]] = \
+    ios.labelled_CWAL[chrom_content[0]].union(ios.labelled_CWAL[chrom_content[1]])
     fusion_log.append(["parent_node", i, "fusion", 1, 
-        list([get_all_LMSs_of_a_chrom(ios, chrom_content[0]), get_all_LMSs_of_a_chrom(ios, chrom_content[1])])])
-    ios.pop(chrom_content[0], None)
-    ios.pop(chrom_content[1], None)
+        list([get_all_LMSs_of_a_chrom(ios.labelled_CWAL, chrom_content[0]), 
+            get_all_LMSs_of_a_chrom(ios.labelled_CWAL, chrom_content[1])])])
+    ios.labelled_CWAOC.pop(chrom_content[0], None)
+    ios.labelled_CWAOC.pop(chrom_content[1], None)
+    ios.labelled_CWAL.pop(chrom_content[0], None)
+    ios.labelled_CWAL.pop(chrom_content[1], None)
     return ios, fusion_log
 
 def implement_translocation_2(ios, chrom_content, element, translocation_log, i):
-    ios[chrom_content[0] + "_a_" + chrom_content[1].split("_", 1)[1] + "_a"][element] = \
-    ios[chrom_content[0]][element].union(ios[chrom_content[1]][element])
+    ios.labelled_CWAOC[chrom_content[0] + "_a_" + chrom_content[1].split("_", 1)[1] + "_a"].add(element)
     for index in 0, 1:
-        for other_elements in list(ios[chrom_content[index]].keys()):
+        for LMS in ios.labelled_CWAL[chrom_content[index]]:
+            if ios.LMS_OC[LMS] == element:
+                ios.labelled_CWAL[chrom_content[0] + "_a_" + chrom_content[1].split("_", 1)[1] + "_a"].add(LMS)
+    for index in 0, 1:
+        for other_elements in ios.labelled_CWAOC[chrom_content[index]]:
             if other_elements != element:
-                ios[chrom_content[0] + "_b_" + chrom_content[1].split("_", 1)[1] + "_b"][other_elements] = \
-                ios[chrom_content[0] + "_b_" + chrom_content[1].split("_", 1)[1] + "_b"][other_elements].union(ios[chrom_content[index]][other_elements])
+                ios.labelled_CWAOC[chrom_content[0] + "_b_" + chrom_content[1].split("_", 1)[1] + "_b"].add(other_elements)
+                for LMS in ios.labelled_CWAL[chrom_content[index]]:
+                    if ios.LMS_OC[LMS] == other_elements:
+                        ios.labelled_CWAL[chrom_content[0] + "_b_" + chrom_content[1].split("_", 1)[1] + "_b"].add(LMS)
     translocation_log.append(["parent_node", i, "translocation", 1, 
-        list([get_all_LMSs_of_a_chrom(ios, chrom_content[0]), get_all_LMSs_of_a_chrom(ios, chrom_content[1])])])
-    ios.pop(chrom_content[0], None)
-    ios.pop(chrom_content[1], None)
+        list([get_all_LMSs_of_a_chrom(ios.labelled_CWAL, chrom_content[0]), 
+            get_all_LMSs_of_a_chrom(ios.labelled_CWAL, chrom_content[1])])])
+    ios.labelled_CWAOC.pop(chrom_content[0], None)
+    ios.labelled_CWAOC.pop(chrom_content[1], None)
+    ios.labelled_CWAL.pop(chrom_content[0], None)
+    ios.labelled_CWAL.pop(chrom_content[1], None)
     return ios, translocation_log
 
 def sample_big_l(l_dict):
@@ -747,20 +733,25 @@ def sample_big_l(l_dict):
 def implement_fusion_3(ios, element, fusion_log, i):
     # currently choosing fusions with maximal intersections
     fusion_candidates = []
-    for chrom in ios:
-        if element in list(ios[chrom].keys()):
+    for chrom in ios.labelled_CWAOC:
+        if element in ios.labelled_CWAOC[chrom]:
             fusion_candidates.append(chrom)
-    best_intersection = float(0)
+    best_intersection = 0
     best_pair = []
     for combo in itertools.combinations(fusion_candidates, 2):
-        if len(set(ios[combo[0]].keys()).intersection(set(ios[combo[1]].keys()))) > best_intersection:
-                best_intersection = len(set(ios[combo[0]].keys()).intersection(set(ios[combo[1]].keys())))
+        if len(ios.labelled_CWAOC[combo[0]].intersection(ios.labelled_CWAOC[combo[1]])) > best_intersection:
+                best_intersection = len(ios.labelled_CWAOC[combo[0]].intersection(ios.labelled_CWAOC[combo[1]]))
                 best_pair = list(combo)
-    ios[best_pair[0] + "_" + best_pair[1].split("_", 1)[1]] = get_union_of_chrom_dicts(ios[best_pair[0]], ios[best_pair[1]])
-    fusion_log.append(["parent_node", i, "fusion", 1, list([get_all_LMSs_of_a_chrom(ios, best_pair[0]), 
-                    get_all_LMSs_of_a_chrom(ios, best_pair[1])])])
-    ios.pop(best_pair[0], None)
-    ios.pop(best_pair[1], None)
+    ios.labelled_CWAOC[best_pair[0] + "_" + best_pair[1].split("_", 1)[1]] = \
+    ios.labelled_CWAOC[best_pair[0]].union(ios.labelled_CWAOC[best_pair[1]])
+    ios.labelled_CWAL[best_pair[0] + "_" + best_pair[1].split("_", 1)[1]] = \
+    ios.labelled_CWAL[best_pair[0]].union(ios.labelled_CWAL[best_pair[1]])
+    fusion_log.append(["parent_node", i, "fusion", 1, list([get_all_LMSs_of_a_chrom(ios.labelled_CWAL, best_pair[0]), 
+                    get_all_LMSs_of_a_chrom(ios.labelled_CWAL, best_pair[1])])])
+    ios.labelled_CWAOC.pop(best_pair[0], None)
+    ios.labelled_CWAOC.pop(best_pair[1], None)
+    ios.labelled_CWAL.pop(best_pair[0], None)
+    ios.labelled_CWAL.pop(best_pair[1], None)
     return ios, fusion_log
 
 
@@ -800,7 +791,7 @@ def pop_bad_mappings(chroms, minimum):
         chroms.pop(bad_mapping, None)
     return chroms
 
-def clusters_by_descent(log, tree):
+def clusters_by_descent(log, tree, syngraph):
     clusters = []
     for node in tree.traverse(strategy="preorder"):
         if not node.is_leaf() and not node.is_root():
@@ -826,10 +817,20 @@ def clusters_by_descent(log, tree):
     for cluster in clusters:
         cluster_ID += 1
         for taxon in cluster:
-            formatted_clusters.append(["cluster_" + str(cluster_ID), taxon])
+            formatted_clusters.append(["cluster_" + str(cluster_ID), taxon, get_karyotype(taxon, syngraph)])
     return formatted_clusters
 
+def get_karyotype(taxon, syngraph):
+    seqs = set()
+    for graph_node_id in syngraph.nodes():
+        if taxon in syngraph.nodes[graph_node_id]['seqs_by_taxon']:
+            seqs.add(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
+    return len(seqs)
 
+
+#############################################################################################
+############################### defining classes ############################################
+#############################################################################################
 
 class Syngraph(nx.Graph):
 
@@ -855,7 +856,6 @@ class Syngraph(nx.Graph):
         if check_consistency:
             syngraph_loaded = Syngraph()
             syngraph_loaded.from_file(graph_file)
-            # syngraph_loaded.add_node('1')             # this will fuck up saving/loading consistency
             if self == syngraph_loaded:
                 return graph_file
             else:
@@ -902,10 +902,13 @@ class Syngraph(nx.Graph):
             self.graph['taxa'].add(markerObj.taxon)                                   
             if not markerObj.name in self:
                 # add node if it does not exist yet                                              
-                self.add_node(markerObj.name, taxa=set(), terminal=set(), seqs_by_taxon={})             
+                self.add_node(markerObj.name, taxa=set(), terminal=set(), seqs_by_taxon={}, starts_by_taxon={}, 
+                    ends_by_taxon={})             
             # add taxon to node (useful if '--missing')
             self.nodes[markerObj.name]['taxa'].add(markerObj.taxon)
             self.nodes[markerObj.name]['seqs_by_taxon'][markerObj.taxon] = markerObj.seq
+            self.nodes[markerObj.name]['starts_by_taxon'][markerObj.taxon] = markerObj.start
+            self.nodes[markerObj.name]['ends_by_taxon'][markerObj.taxon] = markerObj.end
             # check whether same seq/taxon
             if markerObj.is_syntenic(prev_markerObj):
                 # add edge if it does not exist
@@ -921,7 +924,7 @@ class Syngraph(nx.Graph):
                 self.nodes[markerObj.name]['terminal'].add(markerObj.taxon)
             prev_markerObj = markerObj
         self.nodes[markerObj.name]['terminal'].add(markerObj.taxon)
-        self.graph['marker_ids_by_seq_id_by_taxon'] = marker_ids_by_seq_id_by_taxon
+        self.graph['marker_ids_by_seq_id_by_taxon'] = marker_ids_by_seq_id_by_taxon # do we need/want this?
 
     def get_target_edge_sets_by_taxon(self, graph_node_id):
         target_edge_sets_by_taxon = collections.defaultdict(set)
@@ -958,64 +961,20 @@ class Syngraph(nx.Graph):
         print("[=] Subgraphs (connected components) = %s" % connected_component_count)
         print("[=] ====================================")
 
-    
-    # def plot(self, outprefix, cmap='Set2', as_multigraph=True):
-    #     taxon_count = len(self.graph['taxa'])
-    #     colour_by_taxon = get_hex_colours_by_taxon(self.graph['taxa'], cmap=cmap)
-    #     if as_multigraph:
-    #         multi_graph = nx.MultiGraph() # create new multigraph
-    #         for node, data in self.nodes.data(True):
-    #             multi_graph.add_node(node, label=node, color='black', width=0.5, shape='rect')
-    #             if 'terminal' in data:
-    #                 for taxon in data['terminal']:
-    #                     new_terminal_node = "%s_%s_terminal" % (taxon, node)
-    #                     multi_graph.add_node(new_terminal_node, color=colour_by_taxon[taxon], label='', width=0.5, shape='rect')
-    #                     multi_graph.add_edge(new_terminal_node, node, penwidth=0.5)
-    #         for u, v, taxa in self.edges.data('taxa'):
-    #             for taxon in taxa:
-    #                 multi_graph.add_edge(u, v, color=colour_by_taxon[taxon], style='solid', penwidth=4)
-    #         plot_graph = multi_graph
-    #     else:
-    #         plot_graph = nx.Graph()
-    #         for node, data in self.nodes.data(True):
-    #             plot_graph.add_node(node, label='', width=0.5, shape='point')
-    #             if 'terminal' in data:
-    #                 for taxon in data['terminal']:
-    #                     new_terminal_node = "%s_%s_terminal" % (taxon, node) 
-    #                     plot_graph.add_node(new_terminal_node, color=colour_by_taxon[taxon], label='', width=0.5, shape='point')
-    #                     plot_graph.add_edge(new_terminal_node, node, penwidth=0.5)
-    #         for u, v, taxa in self.edges.data('taxa'):
-    #             edge_style = 'solid'
-    #             if len(taxa) == 1:
-    #                 edge_style = 'dashed'
-    #             plot_graph.add_edge(u, v, color='grey', style=edge_style, penwidth=4+(len(taxa)/taxon_count))
-    #     # add legend
-    #     for taxon, colour in colour_by_taxon.items():
-    #         plot_graph.add_node(taxon, color=colour_by_taxon[taxon], label=taxon, width=0.5, style='filled', shape='circle')
-    #     # layout
-    #     if nx.number_of_nodes(self) < 50:
-    #         layout='dot'
-    #     else:
-    #         layout='neato'
-    #     # generate graphviz graph
-    #     G = nx.drawing.nx_agraph.to_agraph(plot_graph)
-    #     out_f = "%s.pdf" % outprefix
-
-    #     G.draw(out_f, prog=layout, args=" -Grankdir=BT")
-    #     return out_f
 
 class MarkerObj():
-    def __init__(self, name=None, desc=None, status=None, taxon=None, seq=None, coord=float("nan")):
+    def __init__(self, name=None, desc=None, status=None, taxon=None, seq=None, start=None, end=None):
         self.name = name
         self.desc = desc if desc is not None else name
         self.status = status
         self.taxon = taxon
         self.seq = seq
-        self.coord = coord
+        self.start = start
+        self.end = end
 
     def __repr__(self):
-        return "MarkerObj(name=%r, desc=%r, status=%r, taxon=%r, seq=%r, coord=%f)" % (
-            self.name, self.desc, self.status, self.taxon, self.seq, self.coord) 
+        return "MarkerObj(name=%r, desc=%r, status=%r, taxon=%r, seq=%r, start=%d, end=%d)" % (
+            self.name, self.desc, self.status, self.taxon, self.seq, self.start, self.end) 
 
     def __eq__(self, other):
         if isinstance(other, MarkerObj):
@@ -1030,8 +989,29 @@ class MarkerObj():
 
     def distance(self, other):
         if self.is_syntenic(other):
-            if self.coord == other.coord:
-                return 0.0
-            else:
-                return float(max(self.coord, other.coord) - min(self.coord, other.coord))                
+            return int(max((self.start - other.end), (other.start - self.end)))
         return float("nan")
+
+class GenomeObj():
+    # CWAL = chromosomes written as LMSs
+    # CWAOC = chromosomes written as other chromosomes
+    # either a list of sets or, if labelled, a dict of sets
+    # LMS_OC = mapping of LMS to other chromosomes
+    # This could all be done with one nested dict, but I tried that and it was ugly
+    def __init__(self, labelled_CWAL=None, CWAL=None, labelled_CWAOC=None, CWAOC=None, LMS_OC=None, taxon=None):
+        if labelled_CWAL is None:
+            labelled_CWAL = collections.defaultdict(set)
+        if CWAL is None:
+            CWAL = []
+        if labelled_CWAOC is None:
+            labelled_CWAOC = collections.defaultdict(set)
+        if CWAOC is None:
+            CWAOC = []
+        if LMS_OC is None:
+            LMS_OC = {}
+        self.labelled_CWAL = labelled_CWAL
+        self.CWAL = CWAL
+        self.labelled_CWAOC = labelled_CWAOC
+        self.CWAOC = CWAOC
+        self.LMS_OC = LMS_OC
+        self.taxon = taxon

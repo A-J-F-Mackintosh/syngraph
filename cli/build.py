@@ -1,19 +1,11 @@
 """
 
-Usage: syngraph build -d <DIR> [-l <STR>] [-g <FILE>] [-m|-M] [-f|-F] [-s] [-o <STR> -h]
+Usage: syngraph build -d <DIR> [-o <STR> -m -h]
 
   [Options]
-    -l, --label <STR>                           Type of input data to analyse (busco|ortho) [default: busco]
-    -g, --orthogroups <FILE>                    If '-l ortho', provide Orthofinder Orthogroups.tsv file 
-    -d, --dir <DIR>                             Directory containing 
-                                                    - BUSCO (v4.0.3+) TAXONNAME.*.full_table.tsv files, if '-l busco'
-                                                    - BED files TAXONNAME.*.bed files (where TAXONNAME is in header of Orthogroups.tsv, if '-l ortho'
+    -d, --dir <DIR>                             Directory containing marker tsvs
     -o, --outprefix <STR>                       Outprefix [default: test]
     -m, --missing                               Allow markers that are missing in ≥1 taxa
-    -M, --ignore_missing                        Ignore markers that are missing in ≥1 taxa (default)
-    -f, --fragmented                            Allow fragmented markers (default)
-    -F, --ignore_fragmented                     Ignore fragmented markers
-    -s, --sign                                  Use sign information 
     -h, --help                                  Show this screen.
 
 """
@@ -30,36 +22,20 @@ class ParameterObj():
     def __init__(self, args):
         print(args)
         self.directory = self._get_path(args['--dir'])
-        self.orthogroups = self._get_path(args['--orthogroups'])
-        self.label = args['--label']
-        self.infiles_by_label = self._get_infiles_by_label(args['--dir'])
+        self.infiles = self._get_infiles(args['--dir'])
         self.outprefix = args['--outprefix']
-        self.missing = not(args['--ignore_missing']) if args['--ignore_missing'] else (args['--missing'] != args['--ignore_missing'])
-        self.fragmented = args['--fragmented'] if args['--fragmented'] else (args['--fragmented'] == args['--ignore_fragmented'])
-        self.sign = args['--sign']
+        self.missing = True if (args['--missing']) else False
         print(self.__dict__)
-        self._check()
 
-    def _get_infiles_by_label(self, directory):
-        infiles_by_label = collections.defaultdict(list)
-        if self.label == 'busco':
-            extension = '.tsv'
-        elif self.label == 'ortho':
-            extension = '.bed'
-        else:
-            sys.exit("[X] Extension is not supported: %r" % extension)
+    def _get_infiles(self, directory):
+        infiles = []
+        extension = '.tsv'
         for f in os.listdir(directory):
             if f.endswith(extension):
-                infiles_by_label[self.label].append(os.path.join(directory, f))
-        if len(infiles_by_label) == 0:
-            sys.exit("[X] No files ending in '*.bed' in folder %s" % os.path.abspath(directory))
-        return infiles_by_label
-        
-    def _check(self):
-        if not self.infiles_by_label:
-            sys.exit("[X] Please specify a directory containing input files (*.tsv).")
-        if self.label == 'ortho' and not self.orthogroups:
-            sys.exit("[X] Please specify an Orthofinder Orthogroups.tsv file.")
+                infiles.append(os.path.join(directory, f))
+        if len(infiles) == 0:
+            sys.exit("[X] No files ending in '*.tsv' in folder %s" % os.path.abspath(directory))
+        return infiles
 
     def _get_path(self, infile):
         if infile is None:

@@ -81,7 +81,7 @@ def main(run_params):
         solved_syngraph, log = sg.tree_traversal(syngraph, parameterObj)
         check_reference_syngraph_concordance(parameterObj.reference, solved_syngraph)
         mapped_log = sg.map_log(log, parameterObj.reference, solved_syngraph, parameterObj.minimum)
-        clusters = sg.clusters_by_descent(log, parameterObj.tree)
+        clusters = sg.clusters_by_descent(log, parameterObj.tree, solved_syngraph)
 
         mapped_log_df = pd.DataFrame(mapped_log)
         clusters_df = pd.DataFrame(clusters)

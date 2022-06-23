@@ -1,11 +1,9 @@
 """
 
-Usage: syngraph query -g <FILE> [-s <STR> -b -o <STR> -h]
+Usage: syngraph tabulate -g <FILE> [-o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>          Syngraph file
-    -f, --focal_taxon <STR>        Taxon in graph to query
-    -r, --reference_taxon <STR>    For each marker in focal_taxon, write which seq the marker is on in this taxon
     -o, --outprefix <STR>          Outprefix [default: test]
     -h, --help                     Show this message
 
@@ -23,8 +21,6 @@ import pandas as pd
 class ParameterObj():
     def __init__(self, args):
         self.syngraph = self._get_path(args['--syngraph'])
-        self.focal_taxon = args['--focal_taxon']
-        self.reference_taxon = args['--reference_taxon']
         self.outprefix = args['--outprefix']
 
     def _get_path(self, infile):
@@ -33,15 +29,25 @@ class ParameterObj():
             sys.exit("[X] File not found: %r" % str(infile))
         return path
 
-def collect_info_from_graph(syngraph, focal, reference):
+def collect_info_from_graph(syngraph):
     info = []
     for graph_node_id in syngraph.nodes:
-        entry = [0, 0, 0, 0, 0]
-        for graph_node_taxon in syngraph.nodes[graph_node_id]['taxa']:
-            if focal in taxa:
-                entry[0] = syngraph.nodes[graph_node_id]['seqs_by_taxon'][focal]
-                # need coords!
-                
+        entry = [graph_node_id]
+        for taxon in syngraph.graph['taxa']:
+            if taxon in syngraph.nodes[graph_node_id]['taxa']:
+                entry.append(syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon])
+                if taxon in syngraph.nodes[graph_node_id]['starts_by_taxon']:
+                    entry.append(syngraph.nodes[graph_node_id]['starts_by_taxon'][taxon])
+                else:
+                    entry.append("NA")
+                if taxon in syngraph.nodes[graph_node_id]['ends_by_taxon']:
+                    entry.append(syngraph.nodes[graph_node_id]['ends_by_taxon'][taxon])
+                else:
+                    entry.append("NA")
+            else:
+                entry.append("NA")
+                entry.append("NA")
+            info.append(entry)
     return info
 
 def main(run_params):
@@ -56,10 +62,10 @@ def main(run_params):
         print("[+] Show Syngraph metrics ...")
         syngraph.show_metrics()
 
-        info = collect_info_from_graph(syngraph, parameterObj.focal_taxon, parameterObj.reference_taxon)
+        info = collect_info_from_graph(syngraph)
         info_df = pd.DataFrame(info)
         info_csv = info_df.to_csv(sep="\t", header=None, index=None)
-        with open("{}.query.tsv".format(parameterObj.outprefix), 'w') as fh:
+        with open("{}.table.tsv".format(parameterObj.outprefix), 'w') as fh:
             fh.write(info_csv)
             fh.write("\n")
 

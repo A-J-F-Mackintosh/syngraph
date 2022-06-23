@@ -5,7 +5,7 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
   [Modules]
     build               Build graph from orthology data (e.g. BUSCO *.full_table.tsv)
     infer               Model rearrangements over a tree
-    query               Get info on inferred ancestral genomes
+    tabulate            Get table of extant and ancestral genomes
     viz                 Visualise graph/data [TBI]
     
   [Options]
@@ -40,9 +40,9 @@ def main():
         elif args['<module>'] == 'infer':
             import cli.infer as infer
             infer.main(run_params)
-        elif args['<module>'] == 'query':
-            import cli.query as query
-            query.main(run_params)
+        elif args['<module>'] == 'tabulate':
+            import cli.tabulate as tabulate
+            tabulate.main(run_params)
         elif args['<module>'] == 'viz':
             import cli.viz as viz
             viz.main(run_params)
