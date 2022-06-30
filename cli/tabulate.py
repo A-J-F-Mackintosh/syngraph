@@ -54,7 +54,8 @@ def collect_info_from_graph(syngraph):
             else:
                 entry.append("NA")
                 entry.append("NA")
-            info.append(entry)
+                entry.append("NA")
+        info.append(entry)
     return info
 
 def main(run_params):
