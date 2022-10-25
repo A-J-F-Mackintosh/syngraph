@@ -15,8 +15,8 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
   [Modules]
     build               Build graph from orthology data (e.g. BUSCO *.full_table.tsv)
     infer               Model rearrangements over a tree
-    query               Get info on inferred ancestral genomes [TBI]
-    viz                 Visualise graph/data [TBI]
+    tabulate            Get table of extant and ancestral genomes
+    viz                 Visualise graph/data [Under development]
     
   [Options]
     -h, --help          Show this screen.
@@ -42,6 +42,11 @@ syngraph infer -g test.pickle -t newick.txt -r 2 -s taxon_1 -o test
 ## Model translocations, fissions and fusions over a tree
 ```
 syngraph infer -g test.pickle -t newick.txt -r 3 -s taxon_1 -o test
+```
+
+## Tabulate extant and inferred genomes
+```
+syngraph tabulate -g test.with_ancestors.pickle -o test
 ```
 
 # Input data
