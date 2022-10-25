@@ -762,21 +762,29 @@ def implement_fusion_3(ios, element, fusion_log, i):
 #############################################################################################
 
 # map chromosomes involved in rearrangements to chromosomes belonging to some taxon (tip or internal node)
-def map_log(log, reference, syngraph, minimum):
+def map_log(log, reference_taxon, reference_dict, syngraph, minimum):
     for i in range(1, len(log)): # start at 1 to avoid parsing the header line
         if log[i][2] == "fission":
             chroms = collections.defaultdict(int)
             for marker in log[i][4]:
-                if reference in syngraph.nodes[marker]['seqs_by_taxon'].keys():
-                    chroms[syngraph.nodes[marker]['seqs_by_taxon'][reference]] += 1
+                if reference_taxon:
+                    if reference_taxon in syngraph.nodes[marker]['seqs_by_taxon'].keys():
+                        chroms[syngraph.nodes[marker]['seqs_by_taxon'][reference_taxon]] += 1
+                elif reference_dict:
+                    if marker in reference_dict.keys():
+                        chroms[reference_dict[marker]] += 1
             chroms = pop_bad_mappings(chroms, minimum)
             log[i][4] = list(chroms.keys())  
         else:
             for anc_chrom in 0, 1:
                 chroms = collections.defaultdict(int)
                 for marker in log[i][4][anc_chrom]:
-                    if reference in syngraph.nodes[marker]['seqs_by_taxon'].keys():
-                        chroms[syngraph.nodes[marker]['seqs_by_taxon'][reference]] += 1
+                    if reference_taxon:
+                        if reference_taxon in syngraph.nodes[marker]['seqs_by_taxon'].keys():
+                            chroms[syngraph.nodes[marker]['seqs_by_taxon'][reference_taxon]] += 1
+                    elif reference_dict:
+                        if marker in reference_dict.keys():
+                            chroms[reference_dict[marker]] += 1
                 chroms = pop_bad_mappings(chroms, minimum)
                 log[i][4][anc_chrom] = list(chroms.keys())
     return log

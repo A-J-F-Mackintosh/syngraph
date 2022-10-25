@@ -1,6 +1,6 @@
 """
 
-Usage: syngraph infer -g <FILE> -t <NWK> -s <STR> [-m <INT> -r <STR> -o <STR> -h]
+Usage: syngraph infer -g <FILE> -t <NWK> (-s <STR> | -S <STR>) [-m <INT> -r <STR> -o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>        Syngraph file
@@ -8,6 +8,7 @@ Usage: syngraph infer -g <FILE> -t <NWK> -s <STR> [-m <INT> -r <STR> -o <STR> -h
     -m, --minimum <INT>          Minimum number of markers for a synteny relationship [default: 5]
     -r, --rearrangements <INT>   Rearrangements to be modelled: 2 (fission+fusion) or 3 (fission+fusion+translocation) [default: 2]
     -s, --reference_taxon <STR>  Taxon name to map ancestral seqs to
+    -S, --reference_tsv <STR>    Predefined linkage groups in tsv format (marker_ID, LG_name) to map ancestral seqs to
     -o, --outprefix <STR>        Outprefix [default: test]
     -h, --help                   Show this message
 
@@ -23,6 +24,7 @@ from functools import partial
 from timeit import default_timer as timer
 from source import syngraph as sg
 import pandas as pd
+import collections
 
 
 class ParameterObj():
@@ -32,7 +34,12 @@ class ParameterObj():
         self.minimum = int(args['--minimum'])
         self.model = self._check_model(int(args['--rearrangements']))
         self.outprefix = args['--outprefix']
-        self.reference = args['--reference_taxon']
+        if args['--reference_taxon']:
+            self.reference_taxon = args['--reference_taxon']
+            self.reference_tsv = None
+        elif args['--reference_tsv']:
+            self.reference_tsv = self._get_path(args['--reference_tsv'])
+            self.reference_taxon = None
 
     def _get_path(self, infile):
         path = pathlib.Path(infile).resolve()
@@ -63,6 +70,15 @@ def check_reference_syngraph_concordance(reference, syngraph):
     if reference not in syngraph.graph['taxa']:
         print("\n[X] WARNING: The reference taxon, {}, is not in the syngraph.\n".format(reference))
 
+def generate_reference_dict(reference_path):
+    reference_dict = {}
+    with open(reference_path, "r") as reference_f:
+        for line in reference_f:
+            marker_ID = line.rstrip().split()[0]
+            ref_chrom = line.rstrip().split()[1]
+            reference_dict[marker_ID] = ref_chrom
+    return reference_dict
+
 def main(run_params):
     try:
         main_time = timer()
@@ -76,11 +92,18 @@ def main(run_params):
         check_tree_syngraph_concordance(parameterObj.tree, syngraph)
         print("[+] Show Syngraph metrics ...")
         syngraph.show_metrics()
-        random.seed(44)
+        random.seed(44) 
 
         solved_syngraph, log = sg.tree_traversal(syngraph, parameterObj)
-        check_reference_syngraph_concordance(parameterObj.reference, solved_syngraph)
-        mapped_log = sg.map_log(log, parameterObj.reference, solved_syngraph, parameterObj.minimum)
+        if parameterObj.reference_taxon:
+            check_reference_syngraph_concordance(parameterObj.reference_taxon, solved_syngraph)
+            mapped_log = sg.map_log(log, parameterObj.reference_taxon, None, 
+                solved_syngraph, parameterObj.minimum)
+        else:
+            reference_dict = generate_reference_dict(parameterObj.reference_tsv)
+            mapped_log = sg.map_log(log, parameterObj.reference_taxon, reference_dict, 
+                solved_syngraph, parameterObj.minimum)
+
         clusters = sg.clusters_by_descent(log, parameterObj.tree, solved_syngraph)
 
         mapped_log_df = pd.DataFrame(mapped_log)
