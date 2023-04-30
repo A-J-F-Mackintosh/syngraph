@@ -49,8 +49,6 @@ syngraph infer -g test.pickle -t newick.txt -r 3 -s taxon_1 -o test
 syngraph tabulate -g test.with_ancestors.pickle -o test
 ```
 
-# Additional info
-
 ### Input data
 
 Input data should only contain markers from chromosome-scale sequences as unscaffolded contigs will result in excess fission events being inferred.
@@ -79,4 +77,4 @@ n5      n7      fusion  1       [['n5_6'], ['n5_19']]
 
 # Help
 
-Syngraph is still under activate development. Please open an issue if you have any questions about running the software or interpreting your results.
+Syngraph is still under active development. Please open an issue if you have any questions about running the software or interpreting your results.
