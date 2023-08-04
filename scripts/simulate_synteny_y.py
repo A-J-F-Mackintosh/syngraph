@@ -3,7 +3,7 @@
 
 """
 
-Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT> -l <INT>
+Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -i <FLT> -e <FLT> -l <INT>
 
   [Options]
     -s, --simulations <INT>                     Number of simulations
@@ -11,7 +11,8 @@ Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT>
     -g, --genes <INT>                           Number of genes in simulations
     -a, --rearrangements <INT>                  Number of rearrangements placed on the tree
     -r, --ratio <STR>                           Ratio of fission,fusion,translocation, e.g. 2,2,1
-    -m, --model <INT>                           Model to infer back rearrangements with, 2 or 3
+    -i, --missingness <FLT>                     Proportion of markers missing from each genome
+    -e, --error <FLT>                           Proportion of markers assigned to the wrong chromosome
     -l, --leaves <INT>                          Leaves in tree
     -h, --help                                  Show this message
 
@@ -40,7 +41,8 @@ k_arg = int(args['--karyotype'])
 g_arg = int(args['--genes'])
 a_arg = int(args['--rearrangements'])
 r_arg = [int(i) for i in (args['--ratio']).split(",")]
-m_arg = int(args['--model'])
+i_arg = float(args['--missingness'])
+e_arg = float(args['--error'])
 l_arg = int(args['--leaves'])
 
 
@@ -221,23 +223,36 @@ class ParameterObj():
     def __init__(self, simulated_syngraph, tree, model, ancinf):
         self.syngraph = simulated_syngraph
         self.tree = tree
-        self.minimum = 1
+        self.minimum = 5
         self.model = model
         self.ancinf = ancinf
 
-def compare_genomes(simulated_syngraph, solved_syngraph):
-	for taxon in simulated_syngraph.graph['taxa']:
-		taxon_simulated_genome = collections.defaultdict(set)
-		taxon_solved_genome = collections.defaultdict(set)
-		for graph_node_id in simulated_syngraph.nodes():
+def compare_genomes(simulated_syngraph, solved_syngraph, taxon):
+	perfect_genome = 1
+	imperfect_genome = 1
+	taxon_simulated_genome = collections.defaultdict(set)
+	taxon_solved_genome = collections.defaultdict(set)
+	for graph_node_id in simulated_syngraph.nodes():
+		if taxon in simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'].keys():
 			taxon_simulated_genome[simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
-			taxon_solved_genome[solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
+		if graph_node_id in solved_syngraph.nodes():
+			if taxon in solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'].keys():
+				taxon_solved_genome[solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
+	for chromosome in taxon_simulated_genome.values():
+		if chromosome in taxon_solved_genome.values():
+			pass
+		else:
+			perfect_genome = 0
+	for solved_chromosome in taxon_solved_genome.values():
+		a_subset = 0
 		for chromosome in taxon_simulated_genome.values():
-			if chromosome in taxon_solved_genome.values():
-				pass
-			else:
-				return 0
-	return 1
+			if solved_chromosome.issubset(chromosome):
+				a_subset = 1
+		if a_subset == 0:
+			imperfect_genome = 0
+	if len(taxon_simulated_genome.keys()) != len(taxon_solved_genome.keys()):
+		imperfect_genome = 0
+	return perfect_genome, imperfect_genome
 
 def compare_rearrangements(rearrangement_log, inferred_log):
 	simulated_rearrangements = []
@@ -257,9 +272,65 @@ def compare_rearrangements(rearrangement_log, inferred_log):
 	else:
 		return 0
 
+def rearrangement_length(inferred_log):
+	simulated_rearrangements = []
+	inferred_rearrangements = []
+	for entry in rearrangement_log:
+		simulated_rearrangements.append(entry)
+	for entry in inferred_log:
+		if entry == ['#parent', 'child', 'event', 'multiplicity', 'ref_seqs']:
+			pass
+		else:
+			for i in range(0, int(entry[3])):
+				inferred_rearrangements.append(entry[0:3])
+	simulated_rearrangements.sort()
+	inferred_rearrangements.sort()
+	return len(inferred_rearrangements)
 
-total_sims_quick = 0
-total_sims_slow = 0
+def get_deepest_node(tree):
+	n1_count = 0
+	n2_count = 0
+	for node in tree.traverse(strategy="preorder"):
+		if node.name in ["n1", "n2"]:
+			for desc in node.iter_descendants():
+				if node.name == "n1":
+					n1_count += 1
+				elif node.name == "n2":
+					n2_count += 1
+	if n1_count >= n2_count:
+		return "n1"
+	else:
+		return "n2"
+
+def add_missingness(genome_dict, missingness, genes, tree):
+	for node in tree.traverse(strategy="preorder"):
+		if node.is_leaf():
+			missing_markers = random.sample(range(1, 1 + genes), k= int(missingness * genes))
+			for chromosome in genome_dict[node.name]:
+				for m_marker in missing_markers:
+					if m_marker in chromosome:
+						chromosome.remove(m_marker)
+			while set() in genome_dict[node.name]:
+				genome_dict[node.name].remove(set())
+	return genome_dict
+
+def add_error(genome_dict, error, genes, tree):
+	for node in tree.traverse(strategy="preorder"):
+		if node.is_leaf():
+			error_markers = random.sample(range(1, 1 + genes), k= int(error * genes))
+			for chromosome in genome_dict[node.name]:
+				for e_marker in error_markers:
+					if e_marker in chromosome:
+						chromosome.remove(e_marker)
+			for e_marker in error_markers: # can return marker to orginal chrom, which is realistic
+				new_chromosome = random.sample(genome_dict[node.name], k=1)[0]
+				new_chromosome.add(e_marker)		
+			while set() in genome_dict[node.name]:
+				genome_dict[node.name].remove(set())
+	return genome_dict
+
+
+total_sims = 0
 
 if l_arg <= 1:
 	sys.exit("[X] Cannot simulate rearrangements with 0 or 1 leaves")
@@ -281,30 +352,30 @@ elif l_arg == 2:
 		print(a_arg, inferred_rearrangements)
 
 else:
-	correctly_inferred_genomes_quick = 0
-	correctly_inferred_histories_quick = 0
-	correctly_inferred_genomes_slow = 0
-	correctly_inferred_histories_slow = 0
+	#correctly_inferred_ALGs = 0
+	#correctly_inferred_impALGs = 0
+	#correctly_inferred_histories = 0
 	for i in range(0, s_arg):
 		tree = generate_random_tree(l_arg)
+		deepest_node = get_deepest_node(tree)
 		genome_dict, rearrangement_log = tree_traversal(tree, k_arg, g_arg, a_arg, r_arg)
+		genome_dict = add_missingness(genome_dict, i_arg, g_arg, tree)
+		genome_dict = add_error(genome_dict, e_arg, g_arg, tree)
 		simulated_syngraph = syngraph_from_dict(genome_dict, tree)
 		simulated_syngraph_with_ancestors = syngraph_with_ancestors_from_dict(genome_dict, tree)
-		for ancinf in ["quick", "slow"]:
-			parameterObj = ParameterObj(simulated_syngraph, tree, m_arg, ancinf)
+		for model in [2, 3]:
+			parameterObj = ParameterObj(simulated_syngraph, tree, model, "quick")
 			solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
-			#print("simulated:", rearrangement_log)
-			#print("inferred:", inferred_log)
-			if ancinf == "quick":
-				total_sims_quick += 1
-				correctly_inferred_genomes_quick += compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph)
-				print("genomes:", correctly_inferred_genomes_quick, "/", total_sims_quick)
-				correctly_inferred_histories_quick += compare_rearrangements(rearrangement_log, inferred_log)
-				print("histories:", correctly_inferred_histories_quick, "/", total_sims_quick)
-			else:
-				total_sims_slow += 1
-				correctly_inferred_genomes_slow += compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph)
-				print("genomes:", correctly_inferred_genomes_slow, "/", total_sims_slow)
-				correctly_inferred_histories_slow += compare_rearrangements(rearrangement_log, inferred_log)
-				print("histories:", correctly_inferred_histories_slow, "/", total_sims_slow)
-
+			total_sims += 1
+			#perfect_genome, imperfect_genome = compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, deepest_node)
+			#correctly_inferred_ALGs += perfect_genome
+			#correctly_inferred_impALGs += imperfect_genome
+			#print("genomes:", correctly_inferred_ALGs, "/", total_sims)
+			#print("imperfect genomes:", correctly_inferred_impALGs, "/", total_sims)
+			#correctly_inferred_histories += compare_rearrangements(rearrangement_log, inferred_log)
+			#print("histories:", correctly_inferred_histories, "/", total_sims)
+			if model == 2:
+				two_length = rearrangement_length(inferred_log)
+			elif model == 3:
+				three_length = rearrangement_length(inferred_log)
+		print("Rearrangements delta: ", a_arg, two_length - three_length)

@@ -1,12 +1,13 @@
 """
 
-Usage: syngraph infer -g <FILE> -t <NWK> (-s <STR> | -S <STR>) [-m <INT> -r <STR> -o <STR> -h]
+Usage: syngraph infer -g <FILE> -t <NWK> (-s <STR> | -S <STR>) [-m <INT> -r <STR> -a <STR> -o <STR> -h]
 
   [Options]
     -g, --syngraph <FILE>        Syngraph file
     -t, --tree <NWK>             Tree in Newick format
     -m, --minimum <INT>          Minimum number of markers for a synteny relationship [default: 5]
     -r, --rearrangements <INT>   Rearrangements to be modelled: 2 (fission+fusion) or 3 (fission+fusion+translocation) [default: 2]
+    -a, --anc_inference <STR>    Infer ancestral chromosomes approximately (quick) or more accurately (slow) [default: quick]
     -s, --reference_taxon <STR>  Taxon name to map ancestral seqs to
     -S, --reference_tsv <STR>    Predefined linkage groups in tsv format (marker_ID, LG_name) to map ancestral seqs to
     -o, --outprefix <STR>        Outprefix [default: test]
@@ -33,6 +34,7 @@ class ParameterObj():
         self.tree = self._get_tree(args['--tree'])
         self.minimum = int(args['--minimum'])
         self.model = self._check_model(int(args['--rearrangements']))
+        self.ancinf = self._check_ancinf(args['--anc_inference'])
         self.outprefix = args['--outprefix']
         if args['--reference_taxon']:
             self.reference_taxon = args['--reference_taxon']
@@ -60,6 +62,11 @@ class ParameterObj():
         if model not in [2, 3]:
             sys.exit("[X] Invalid model specified: %r" % str(model))
         return model
+
+    def _check_ancinf(self, ancinf):
+        if ancinf not in ["quick", "slow"]:
+            sys.exit("[X] Invalid ancestral inference specified: %r" % str(ancinf))
+        return ancinf
 
 def check_tree_syngraph_concordance(tree, syngraph):
     for leaf in tree.get_leaves():

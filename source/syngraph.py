@@ -48,7 +48,7 @@ def load_markerObjs(parameterObj):
         markerObjs = []
         counter = collections.Counter([tmp.name for tmp in tmp_markerObjs])
         for markerObj in tmp_markerObjs:
-            if counter[markerObj.name] == len(infiles):
+            if counter[markerObj.name] == len(parameterObj.infiles):
                 markerObjs.append(markerObj)
         return markerObjs
 
@@ -59,7 +59,7 @@ def load_markerObjs(parameterObj):
 
 # a function for getting the closest outgroup to a tree node
 # outgroup must be in 'available_taxa' and cannot be a descenant of the tree_node or the tree_nodes itself
-def get_closest_outgroup(tree, tree_node, available_taxa): # should this be branch or toplogical distance?
+def get_closest_outgroup(tree, tree_node, available_taxa): # should this be branch or toplogical distance? no
     closest_taxon_so_far = None
     closest_distance_so_far = float("inf")
     for some_tree_node in tree.search_nodes():
@@ -264,10 +264,8 @@ def evaluate_genome_with_parsimony(branch_lengths, ios_1, ios_2, ios_3, possible
             rearrangement_log  = ffsd(compact_synteny_2(ios, possible_median), rearrangement_log, i)
         # count rearrangements
         for rearrangement in rearrangement_log:
-            if rearrangement[1] == i and rearrangement[2] != "translocation":
+            if rearrangement[1] == i:
                 total += rearrangement[3]
-            elif rearrangement[1] == i and rearrangement[2] == "translocation":
-                total += rearrangement[3] * 1.5
         # calculate branch rate, can use this to settle ties
         branch_rate = total / (branch_lengths["up"][i] + branch_lengths["down"][i])
         if branch_rate > max_branch_rate:
@@ -365,7 +363,7 @@ def heuristic_solver(tree_node, ios_1, ios_2, ios_3, parsimony_genome, branch_le
     best_rearrangement_log = []
     starting_genome = copy.deepcopy(parsimony_genome)
     # peturb the parsimony genome using a decreasing random walk
-    for rw_param in [[9, 2000], [7, 2000], [5, 2000], [3, 2000], [1, 2000]]:
+    for rw_param in [[9, 900], [7, 700], [5, 500], [3, 300], [1, 100]]:
         rw_length = rw_param[0]
         rw_iterations = rw_param[1]
         for iteration in range(0, rw_iterations):
@@ -442,7 +440,7 @@ def edit_rearrangement_log(rearrangement_log, LMSs):
 
 # could be good to name function variables, e.g. tree_node = None and tree_node = my_tree_node when you call
 
-def median_genome(tree_node, working_syngraph, taxa, branch_lengths, minimum, model):
+def median_genome(tree_node, working_syngraph, taxa, branch_lengths, minimum, model, ancinf):
     # get LMSs >= minimum
     # LMSs < minimum are dealt with later and don't contribute to events
     # remaining LMSs represent a fissioned median genome
@@ -463,7 +461,7 @@ def median_genome(tree_node, working_syngraph, taxa, branch_lengths, minimum, mo
     triplet_rearrangement_log = []
     label_count = 0
     # for fission+fusion we can just use the parsimony genome
-    if model == 2:
+    if ancinf == "quick":
         solved_connected_component, new_rearrangements = parsimony_genome_solver(tree_node, 
             parsimony_genome, ios_1, ios_2, ios_3, branch_lengths, model, label_count)
         # update solution, log, and labels
@@ -478,7 +476,7 @@ def median_genome(tree_node, working_syngraph, taxa, branch_lengths, minimum, mo
             single_component = GenomeObj()
             single_component.CWAL.append(connected_component)
             # pruning gives the connected component specific data
-            if len(connected_component) > 10:
+            if len(connected_component) > 9:
                 # solve heuristicly
                 solved_connected_component, new_rearrangements = heuristic_solver(tree_node, 
                     prune_genome(ios_1, single_component), prune_genome(ios_2, single_component), 
@@ -548,7 +546,7 @@ def tree_traversal(syngraph, params):
                 best_triplet[0][1], best_triplet[0][2]))
             # call the solver
             traversal_0_syngraph, rearrangement_log = \
-            median_genome(best_triplet[1], traversal_0_syngraph, best_triplet[0], branch_lengths, params.minimum, params.model)
+            median_genome(best_triplet[1], traversal_0_syngraph, best_triplet[0], branch_lengths, params.minimum, params.model, params.ancinf)
             available_taxa.add(best_triplet[1])
             # add rearrangements to log
             for rearrangement in rearrangement_log:

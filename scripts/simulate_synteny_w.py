@@ -225,18 +225,17 @@ class ParameterObj():
         self.model = model
         self.ancinf = ancinf
 
-def compare_genomes(simulated_syngraph, solved_syngraph):
-	for taxon in simulated_syngraph.graph['taxa']:
-		taxon_simulated_genome = collections.defaultdict(set)
-		taxon_solved_genome = collections.defaultdict(set)
-		for graph_node_id in simulated_syngraph.nodes():
-			taxon_simulated_genome[simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
-			taxon_solved_genome[solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
-		for chromosome in taxon_simulated_genome.values():
-			if chromosome in taxon_solved_genome.values():
-				pass
-			else:
-				return 0
+def compare_genomes(simulated_syngraph, solved_syngraph, taxon):
+	taxon_simulated_genome = collections.defaultdict(set)
+	taxon_solved_genome = collections.defaultdict(set)
+	for graph_node_id in simulated_syngraph.nodes():
+		taxon_simulated_genome[simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
+		taxon_solved_genome[solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
+	for chromosome in taxon_simulated_genome.values():
+		if chromosome in taxon_solved_genome.values():
+			pass
+		else:
+			return 0
 	return 1
 
 def compare_rearrangements(rearrangement_log, inferred_log):
@@ -257,9 +256,22 @@ def compare_rearrangements(rearrangement_log, inferred_log):
 	else:
 		return 0
 
+def get_deepest_node(tree):
+	n1_count = 0
+	n2_count = 0
+	for node in tree.traverse(strategy="preorder"):
+		if node.name in ["n1", "n2"]:
+			for desc in node.iter_descendants():
+				if node.name == "n1":
+					n1_count += 1
+				elif node.name == "n2":
+					n2_count += 1
+	if n1_count >= n2_count:
+		return "n1"
+	else:
+		return "n2"
 
-total_sims_quick = 0
-total_sims_slow = 0
+total_sims = 0
 
 if l_arg <= 1:
 	sys.exit("[X] Cannot simulate rearrangements with 0 or 1 leaves")
@@ -281,30 +293,15 @@ elif l_arg == 2:
 		print(a_arg, inferred_rearrangements)
 
 else:
-	correctly_inferred_genomes_quick = 0
-	correctly_inferred_histories_quick = 0
-	correctly_inferred_genomes_slow = 0
-	correctly_inferred_histories_slow = 0
+	correctly_inferred_ALGs = 0
 	for i in range(0, s_arg):
 		tree = generate_random_tree(l_arg)
+		deepest_node = get_deepest_node(tree)
 		genome_dict, rearrangement_log = tree_traversal(tree, k_arg, g_arg, a_arg, r_arg)
 		simulated_syngraph = syngraph_from_dict(genome_dict, tree)
 		simulated_syngraph_with_ancestors = syngraph_with_ancestors_from_dict(genome_dict, tree)
-		for ancinf in ["quick", "slow"]:
-			parameterObj = ParameterObj(simulated_syngraph, tree, m_arg, ancinf)
-			solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
-			#print("simulated:", rearrangement_log)
-			#print("inferred:", inferred_log)
-			if ancinf == "quick":
-				total_sims_quick += 1
-				correctly_inferred_genomes_quick += compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph)
-				print("genomes:", correctly_inferred_genomes_quick, "/", total_sims_quick)
-				correctly_inferred_histories_quick += compare_rearrangements(rearrangement_log, inferred_log)
-				print("histories:", correctly_inferred_histories_quick, "/", total_sims_quick)
-			else:
-				total_sims_slow += 1
-				correctly_inferred_genomes_slow += compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph)
-				print("genomes:", correctly_inferred_genomes_slow, "/", total_sims_slow)
-				correctly_inferred_histories_slow += compare_rearrangements(rearrangement_log, inferred_log)
-				print("histories:", correctly_inferred_histories_slow, "/", total_sims_slow)
-
+		parameterObj = ParameterObj(simulated_syngraph, tree, m_arg, "quick")
+		solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
+		total_sims += 1
+		correctly_inferred_ALGs += compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, deepest_node)
+		print("genomes:", correctly_inferred_ALGs, "/", total_sims)
