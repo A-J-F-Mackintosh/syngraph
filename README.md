@@ -24,9 +24,9 @@ Usage: syngraph <module> [<args>...] [-D -V -h]
     -v, --version       Show version
 
   [Dependencies] 
-    ------------------------------------------------------------------------------
-    | $ conda install -c conda-forge networkx pandas docopt tqdm ete3 pygraphviz |
-    ------------------------------------------------------------------------------
+    ---------------------------------------------------------------------------------------------
+    | $ conda install -c conda-forge networkx=2.4 pandas docopt tqdm ete3 pygraphviz matplotlib |
+    ---------------------------------------------------------------------------------------------
 ```
 
 ### Build a syngraph from BUSCO data, allowing for missingness
