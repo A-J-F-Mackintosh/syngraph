@@ -3,7 +3,7 @@
 
 """
 
-Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT> -l <INT>
+Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -i <FLT> -e <FLT> -t <STR> [-M <INT> -h]
 
   [Options]
     -s, --simulations <INT>                     Number of simulations
@@ -11,8 +11,10 @@ Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT>
     -g, --genes <INT>                           Number of genes in simulations
     -a, --rearrangements <INT>                  Number of rearrangements placed on the tree
     -r, --ratio <STR>                           Ratio of fission,fusion,translocation, e.g. 2,2,1
-    -m, --model <INT>                           Model to infer back rearrangements with, 2 or 3
-    -l, --leaves <INT>                          Leaves in tree
+    -i, --missingness <FLT>                     Proportion of markers missing from each genome
+    -e, --error <FLT>                           Proportion of markers assigned to the wrong chromosome
+    -t, --tree <STR>                            Newick tree file
+    -M, --min_set <INT>                         Minimum synteny-set size [default: 1]
     -h, --help                                  Show this message
 
 """
@@ -25,6 +27,8 @@ import numpy
 from scipy import stats
 import random
 import ete3
+from dendropy.simulate import treesim
+import itertools
 
 sys.path.append('/ceph/users/amackintosh/software/syngraph/source/')
 import syngraph as sg
@@ -40,16 +44,44 @@ k_arg = int(args['--karyotype'])
 g_arg = int(args['--genes'])
 a_arg = int(args['--rearrangements'])
 r_arg = [int(i) for i in (args['--ratio']).split(",")]
-m_arg = int(args['--model'])
-l_arg = int(args['--leaves'])
+i_arg = float(args['--missingness'])
+e_arg = float(args['--error'])
+t_arg = args['--tree']
+ms_arg = int(args['--min_set'])
 
 
 def generate_random_tree(leaves):
-	tree = ete3.Tree()
-	tree.populate(size=leaves, random_branches=True, branch_range=(1, 10))
+	simed_tree = treesim.birth_death_tree(birth_rate=1.0, death_rate=0.5, num_extant_tips=leaves+1, 
+		repeat_until_success=True) # simulate initial tree with leaves + 1
+	newick_string = simed_tree.as_string(schema='newick')[5:-1] # convert to newick
+	tree = ete3.Tree(newick_string) # load into ete3
+	leaves = []
+	for idx, node in enumerate(tree.traverse()): # collect leaf names
+		if node.is_leaf():
+				leaves.append(node.name)
+	for combo in itertools.combinations(leaves, 2): # find one of the two leaves with an external branch length of 0
+		up_length, down_length = sg.get_branch_distances(tree, combo[0], combo[1])
+		if up_length + down_length == 0:
+			leaf_to_remove = combo[0]
+			break
+	simed_tree.prune_taxa_with_labels([leaf_to_remove]) # remove that leaf
+	# now we have a tree with the correct number of leaves
+	# this way of making trees replaces the n + 1 speciation event with sampling
+	newick_string = simed_tree.as_string(schema='newick')[5:-1]
+	tree = ete3.Tree(newick_string)
+	print(newick_string)
+	tree = ete3.Tree(newick_string)
 	for idx, node in enumerate(tree.traverse()):
 		if not node.is_leaf():
 				node.name = "n%s" % idx
+	print(tree.get_ascii(), "\n")
+	return tree
+
+def get_tree(tree_f):
+	tree = ete3.Tree(tree_f)
+	for idx, node in enumerate(tree.traverse()):
+		if not node.is_leaf():
+			node.name = "n%s" % idx
 	print(tree.get_ascii(), "\n")
 	return tree
 
@@ -218,26 +250,39 @@ def syngraph_with_ancestors_from_dict(genome_dict, tree):
 	return syngraph
 
 class ParameterObj():
-    def __init__(self, simulated_syngraph, tree, model, ancinf):
+    def __init__(self, simulated_syngraph, tree, model, ancinf, min_set):
         self.syngraph = simulated_syngraph
         self.tree = tree
-        self.minimum = 1
+        self.minimum = min_set
         self.model = model
         self.ancinf = ancinf
 
-def compare_genomes(simulated_syngraph, solved_syngraph):
-	for taxon in simulated_syngraph.graph['taxa']:
-		taxon_simulated_genome = collections.defaultdict(set)
-		taxon_solved_genome = collections.defaultdict(set)
-		for graph_node_id in simulated_syngraph.nodes():
+def compare_genomes(simulated_syngraph, solved_syngraph, taxon):
+	perfect_genome = 1
+	imperfect_genome = 1
+	taxon_simulated_genome = collections.defaultdict(set)
+	taxon_solved_genome = collections.defaultdict(set)
+	for graph_node_id in simulated_syngraph.nodes():
+		if taxon in simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'].keys():
 			taxon_simulated_genome[simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
-			taxon_solved_genome[solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
+		if graph_node_id in solved_syngraph.nodes():
+			if taxon in solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'].keys():
+				taxon_solved_genome[solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
+	for chromosome in taxon_simulated_genome.values():
+		if chromosome in taxon_solved_genome.values():
+			pass
+		else:
+			perfect_genome = 0
+	for solved_chromosome in taxon_solved_genome.values():
+		a_subset = 0
 		for chromosome in taxon_simulated_genome.values():
-			if chromosome in taxon_solved_genome.values():
-				pass
-			else:
-				return 0
-	return 1
+			if solved_chromosome.issubset(chromosome):
+				a_subset = 1
+		if a_subset == 0:
+			imperfect_genome = 0
+	if len(taxon_simulated_genome.keys()) != len(taxon_solved_genome.keys()):
+		imperfect_genome = 0
+	return perfect_genome, imperfect_genome
 
 def compare_rearrangements(rearrangement_log, inferred_log):
 	simulated_rearrangements = []
@@ -257,54 +302,96 @@ def compare_rearrangements(rearrangement_log, inferred_log):
 	else:
 		return 0
 
+def rearrangement_length(inferred_log):
+	simulated_rearrangements = []
+	inferred_rearrangements = []
+	for entry in rearrangement_log:
+		simulated_rearrangements.append(entry)
+	for entry in inferred_log:
+		if entry == ['#parent', 'child', 'event', 'multiplicity', 'ref_seqs']:
+			pass
+		else:
+			for i in range(0, int(entry[3])):
+				inferred_rearrangements.append(entry[0:3])
+	simulated_rearrangements.sort()
+	inferred_rearrangements.sort()
+	return len(inferred_rearrangements)
 
-total_sims_quick = 0
-total_sims_slow = 0
+def rearrangement_ratio(inferred_log):
+	translocations = 0
+	fissions_fusions = 0
+	for entry in inferred_log:
+		if entry == ['#parent', 'child', 'event', 'multiplicity', 'ref_seqs']:
+			pass
+		else:
+			for i in range(0, int(entry[3])):
+				if entry[2] == "translocation":
+					translocations += 1
+				else:
+					fissions_fusions += 1
+	if fissions_fusions + translocations == 0:
+		return "NA"
+	else:
+		return round(translocations / (fissions_fusions + translocations), 3)
 
-if l_arg <= 1:
-	sys.exit("[X] Cannot simulate rearrangements with 0 or 1 leaves")
+def get_deepest_node(tree):
+	n1_count = 0
+	n2_count = 0
+	for node in tree.traverse(strategy="preorder"):
+		if node.name in ["n1", "n2"]:
+			for desc in node.iter_descendants():
+				if node.name == "n1":
+					n1_count += 1
+				elif node.name == "n2":
+					n2_count += 1
+	if n1_count >= n2_count:
+		return "n1"
+	else:
+		return "n2"
 
-elif l_arg == 2:
-	for i in range(0, s_arg):
-		genome_dict, rearrangement_log = branch_traversal(k_arg, g_arg, a_arg, r_arg)
-		simulated_syngraph = syngraph_from_dict_for2(genome_dict)
-		LMSs, unassignable_markers = sg.get_LMSs(simulated_syngraph, ["A", "B"], 1)
-		ios_A = sg.compact_synteny_1(simulated_syngraph, LMSs, "A")
-		ios_B = sg.compact_synteny_1(simulated_syngraph, LMSs, "B")
-		if m_arg == 2:
-			inferred_log = sg.ffsd(sg.compact_synteny_2(ios_B, ios_A), [], 0)
-		elif m_arg == 3:
-			inferred_log = sg.ferretti(sg.compact_synteny_2(ios_B, ios_A), [], 0)
-		inferred_rearrangements = 0
-		for rearrangement in inferred_log:
-			inferred_rearrangements += rearrangement[3]
-		print(a_arg, inferred_rearrangements)
+def add_missingness(genome_dict, missingness, genes, tree):
+	for node in tree.traverse(strategy="preorder"):
+		if node.is_leaf():
+			missing_markers = random.sample(range(1, 1 + genes), k= int(missingness * genes))
+			for chromosome in genome_dict[node.name]:
+				for m_marker in missing_markers:
+					if m_marker in chromosome:
+						chromosome.remove(m_marker)
+			while set() in genome_dict[node.name]:
+				genome_dict[node.name].remove(set())
+	return genome_dict
 
-else:
-	correctly_inferred_genomes_quick = 0
-	correctly_inferred_histories_quick = 0
-	correctly_inferred_genomes_slow = 0
-	correctly_inferred_histories_slow = 0
-	for i in range(0, s_arg):
-		tree = generate_random_tree(l_arg)
-		genome_dict, rearrangement_log = tree_traversal(tree, k_arg, g_arg, a_arg, r_arg)
-		simulated_syngraph = syngraph_from_dict(genome_dict, tree)
-		simulated_syngraph_with_ancestors = syngraph_with_ancestors_from_dict(genome_dict, tree)
-		for ancinf in ["quick", "slow"]:
-			parameterObj = ParameterObj(simulated_syngraph, tree, m_arg, ancinf)
-			solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
-			#print("simulated:", rearrangement_log)
-			#print("inferred:", inferred_log)
-			if ancinf == "quick":
-				total_sims_quick += 1
-				correctly_inferred_genomes_quick += compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph)
-				print("genomes:", correctly_inferred_genomes_quick, "/", total_sims_quick)
-				correctly_inferred_histories_quick += compare_rearrangements(rearrangement_log, inferred_log)
-				print("histories:", correctly_inferred_histories_quick, "/", total_sims_quick)
-			else:
-				total_sims_slow += 1
-				correctly_inferred_genomes_slow += compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph)
-				print("genomes:", correctly_inferred_genomes_slow, "/", total_sims_slow)
-				correctly_inferred_histories_slow += compare_rearrangements(rearrangement_log, inferred_log)
-				print("histories:", correctly_inferred_histories_slow, "/", total_sims_slow)
+def add_error(genome_dict, error, genes, tree):
+	for node in tree.traverse(strategy="preorder"):
+		if node.is_leaf():
+			error_markers = random.sample(range(1, 1 + genes), k= int(error * genes))
+			for chromosome in genome_dict[node.name]:
+				for e_marker in error_markers:
+					if e_marker in chromosome:
+						chromosome.remove(e_marker)
+			for e_marker in error_markers: # can return marker to orginal chrom, which is realistic
+				new_chromosome = random.sample(genome_dict[node.name], k=1)[0]
+				new_chromosome.add(e_marker)		
+			while set() in genome_dict[node.name]:
+				genome_dict[node.name].remove(set())
+	return genome_dict
 
+
+total_sims = 0
+
+for i in range(0, s_arg):
+	tree = get_tree(t_arg)
+	deepest_node = get_deepest_node(tree)
+	genome_dict, rearrangement_log = tree_traversal(tree, k_arg, g_arg, a_arg, r_arg)
+	genome_dict = add_missingness(genome_dict, i_arg, g_arg, tree)
+	genome_dict = add_error(genome_dict, e_arg, g_arg, tree)
+	simulated_syngraph = syngraph_from_dict(genome_dict, tree)
+	simulated_syngraph_with_ancestors = syngraph_with_ancestors_from_dict(genome_dict, tree)
+
+	parameterObj = ParameterObj(simulated_syngraph, tree, 3, "quick", ms_arg)
+	solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
+	total_sims += 1
+
+	three_ratio = rearrangement_ratio(inferred_log)
+	if three_ratio != "NA":
+		print("Rearrangements delta: ", a_arg, three_ratio)

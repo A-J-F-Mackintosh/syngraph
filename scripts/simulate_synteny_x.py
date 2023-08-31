@@ -3,7 +3,7 @@
 
 """
 
-Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT> -i <FLT> -e <FLT> -l <INT>
+Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT> -i <FLT> -e <FLT> -l <INT> [-z <STR> -M <INT> -h]
 
   [Options]
     -s, --simulations <INT>                     Number of simulations
@@ -15,6 +15,8 @@ Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT>
     -i, --missingness <FLT>                     Proportion of markers missing from each genome
     -e, --error <FLT>                           Proportion of markers assigned to the wrong chromosome
     -l, --leaves <INT>                          Leaves in tree
+    -z, --anc_inference <STR>                   Infer ancestral chromosomes approximately (quick) or more accurately (slow) [default: quick]
+    -M, --min_set <INT>                         Minimum synteny-set size [default: 1]
     -h, --help                                  Show this message
 
 """
@@ -27,6 +29,8 @@ import numpy
 from scipy import stats
 import random
 import ete3
+from dendropy.simulate import treesim
+import itertools
 
 sys.path.append('/ceph/users/amackintosh/software/syngraph/source/')
 import syngraph as sg
@@ -47,10 +51,31 @@ i_arg = float(args['--missingness'])
 e_arg = float(args['--error'])
 l_arg = int(args['--leaves'])
 
+ai_arg = args['--anc_inference']
+ms_arg = int(args['--min_set'])
+
 
 def generate_random_tree(leaves):
-	tree = ete3.Tree()
-	tree.populate(size=leaves, random_branches=True, branch_range=(1, 10))
+	simed_tree = treesim.birth_death_tree(birth_rate=1.0, death_rate=0.5, num_extant_tips=leaves+1, 
+		repeat_until_success=True) # simulate initial tree with leaves + 1
+	newick_string = simed_tree.as_string(schema='newick')[5:-1] # convert to newick
+	tree = ete3.Tree(newick_string) # load into ete3
+	leaves = []
+	for idx, node in enumerate(tree.traverse()): # collect leaf names
+		if node.is_leaf():
+				leaves.append(node.name)
+	for combo in itertools.combinations(leaves, 2): # find one of the two leaves with an external branch length of 0
+		up_length, down_length = sg.get_branch_distances(tree, combo[0], combo[1])
+		if up_length + down_length == 0:
+			leaf_to_remove = combo[0]
+			break
+	simed_tree.prune_taxa_with_labels([leaf_to_remove]) # remove that leaf
+	# now we have a tree with the correct number of leaves
+	# this way of making trees replaces the n + 1 speciation event with sampling
+	newick_string = simed_tree.as_string(schema='newick')[5:-1]
+	tree = ete3.Tree(newick_string)
+	print(newick_string)
+	tree = ete3.Tree(newick_string)
 	for idx, node in enumerate(tree.traverse()):
 		if not node.is_leaf():
 				node.name = "n%s" % idx
@@ -222,57 +247,62 @@ def syngraph_with_ancestors_from_dict(genome_dict, tree):
 	return syngraph
 
 class ParameterObj():
-    def __init__(self, simulated_syngraph, tree, model, ancinf):
+    def __init__(self, simulated_syngraph, tree, model, ancinf, min_set):
         self.syngraph = simulated_syngraph
         self.tree = tree
-        self.minimum = 5
+        self.minimum = min_set
         self.model = model
         self.ancinf = ancinf
 
-def compare_genomes(simulated_syngraph, solved_syngraph, taxon):
-	perfect_genome = 1
-	imperfect_genome = 1
-	taxon_simulated_genome = collections.defaultdict(set)
-	taxon_solved_genome = collections.defaultdict(set)
-	for graph_node_id in simulated_syngraph.nodes():
+def compare_genomes(simulated_syngraph, solved_syngraph, taxon, g_arg):
+	markers_in_perfect_LGs = 0
+	# lets say an approx LG contains 90% of markers from a single true LG and no more than 5% of markers from any other true LG
+	markers_in_approx_LGs = 0
+	taxon_simulated_genome = collections.defaultdict(set) # record each simulated chromosome as a set of markers
+	taxon_solved_genome = collections.defaultdict(set) # record each inferred chromosome as a set of markers
+	for graph_node_id in simulated_syngraph.nodes(): # populate the sets
 		if taxon in simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'].keys():
 			taxon_simulated_genome[simulated_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
 		if graph_node_id in solved_syngraph.nodes():
 			if taxon in solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'].keys():
 				taxon_solved_genome[solved_syngraph.nodes[graph_node_id]['seqs_by_taxon'][taxon]].add(graph_node_id)
-	for chromosome in taxon_simulated_genome.values():
+	for chromosome in taxon_simulated_genome.values(): # do we find a one - one match between a simulated and inferred LG?
 		if chromosome in taxon_solved_genome.values():
-			pass
-		else:
-			perfect_genome = 0
-	for solved_chromosome in taxon_solved_genome.values():
-		a_subset = 0
+			markers_in_perfect_LGs += len(chromosome)
+	for solved_chromosome in taxon_solved_genome.values(): # do we find a fuzzy match?
+		approx_criterea = 0
 		for chromosome in taxon_simulated_genome.values():
-			if solved_chromosome.issubset(chromosome):
-				a_subset = 1
-		if a_subset == 0:
-			imperfect_genome = 0
-	if len(taxon_simulated_genome.keys()) != len(taxon_solved_genome.keys()):
-		imperfect_genome = 0
-	return perfect_genome, imperfect_genome
+			if len(solved_chromosome.intersection(chromosome)) / len(chromosome) >= 0.9:
+				approx_criterea += 1
+		for chromosome in taxon_simulated_genome.values():
+			if 0.05 < len(solved_chromosome.intersection(chromosome)) / len(chromosome) < 0.9:
+				approx_criterea = 0
+		if approx_criterea == 1:
+			markers_in_approx_LGs += len(solved_chromosome)
+	return markers_in_perfect_LGs / g_arg, markers_in_approx_LGs / g_arg
 
-def compare_rearrangements(rearrangement_log, inferred_log):
-	simulated_rearrangements = []
-	inferred_rearrangements = []
+def compare_rearrangements(rearrangement_log, inferred_log, l_arg):
+	correct_branches = (2 * l_arg) - 4 # assume all branches are perfect to begin with
+	total_branches = (2 * l_arg) - 4 # it is 4 rather than 2 because we don't infer rearrangements on branches beneath the root
+	simulated_rearrangements = collections.defaultdict(list)
+	inferred_rearrangements = collections.defaultdict(list)
 	for entry in rearrangement_log:
-		simulated_rearrangements.append(entry)
+		if entry[0] != "n0": # collect all branches with simmed rearrangements (expect those beneath the root)
+			simulated_rearrangements[entry[0] + "_" + entry[1]].append(entry[2])
+			simulated_rearrangements[entry[0] + "_" + entry[1]] = sorted(simulated_rearrangements[entry[0] + "_" + entry[1]])
 	for entry in inferred_log:
 		if entry == ['#parent', 'child', 'event', 'multiplicity', 'ref_seqs']:
 			pass
 		else:
-			for i in range(0, int(entry[3])):
-				inferred_rearrangements.append(entry[0:3])
-	simulated_rearrangements.sort()
-	inferred_rearrangements.sort()
-	if simulated_rearrangements == inferred_rearrangements:
-		return 1
-	else:
-		return 0
+			for i in range(0, int(entry[3])): # collect inferred rearrangements
+				inferred_rearrangements[entry[0] + "_" + entry[1]].append(entry[2])
+				inferred_rearrangements[entry[0] + "_" + entry[1]] = sorted(inferred_rearrangements[entry[0] + "_" + entry[1]])
+	for key in simulated_rearrangements: # for every branch with simmed rearrangements, -1 from correct if inferred incorrectly
+		if simulated_rearrangements[key] != inferred_rearrangements[key]:
+			correct_branches -= 1
+	# what have we calculated?
+	# the proportion of branches with correctly inferred rearrangements **counts**
+	return correct_branches / total_branches
 
 def get_deepest_node(tree):
 	n1_count = 0
@@ -339,9 +369,11 @@ elif l_arg == 2:
 		print(a_arg, inferred_rearrangements)
 
 else:
-	correctly_inferred_ALGs = 0
-	correctly_inferred_impALGs = 0
-	correctly_inferred_histories = 0
+	ALG_accuracy = 0
+	approx_ALGs_accuracy = 0
+	deep_ALG_accuracy = 0
+	deep_approx_ALGs_accuracy = 0
+	rearrangement_accuracy = 0
 	for i in range(0, s_arg):
 		tree = generate_random_tree(l_arg)
 		deepest_node = get_deepest_node(tree)
@@ -350,14 +382,39 @@ else:
 		genome_dict = add_error(genome_dict, e_arg, g_arg, tree)
 		simulated_syngraph = syngraph_from_dict(genome_dict, tree)
 		simulated_syngraph_with_ancestors = syngraph_with_ancestors_from_dict(genome_dict, tree)
-		parameterObj = ParameterObj(simulated_syngraph, tree, m_arg, "quick")
+		parameterObj = ParameterObj(simulated_syngraph, tree, m_arg, ai_arg, ms_arg)
 		solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
 		total_sims += 1
-		perfect_genome, imperfect_genome = compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, deepest_node)
-		correctly_inferred_ALGs += perfect_genome
-		correctly_inferred_impALGs += imperfect_genome
-		print("genomes:", correctly_inferred_ALGs, "/", total_sims)
-		print("imperfect genomes:", correctly_inferred_impALGs, "/", total_sims)
-		correctly_inferred_histories += compare_rearrangements(rearrangement_log, inferred_log)
-		print("histories:", correctly_inferred_histories, "/", total_sims)
+		total_nodes = 0
+		raw_ALG_accuracy = 0
+		raw_approx_ALGs_accuracy = 0
+		for node in tree.traverse(strategy="preorder"):
+			if node.is_root():
+				pass
+			elif node.is_leaf():
+				pass
+			else:
+				if node.name == deepest_node:
+					deep_perfect_genome, deep_imperfect_genome = compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, 
+						deepest_node, g_arg)
+				perfect_genome, imperfect_genome = compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, 
+					node.name, g_arg)
+				raw_ALG_accuracy += perfect_genome
+				raw_approx_ALGs_accuracy += imperfect_genome
+				total_nodes += 1
+
+		deep_ALG_accuracy += deep_perfect_genome
+		deep_approx_ALGs_accuracy += deep_imperfect_genome
+
+		ALG_accuracy += (raw_ALG_accuracy / total_nodes)
+		approx_ALGs_accuracy += (raw_approx_ALGs_accuracy / total_nodes)
+
+		print("ALG accuracy:", round(ALG_accuracy, 3), "/", total_sims)
+		print("approx-ALG accuracy:", round(approx_ALGs_accuracy, 3), "/", total_sims)
+
+		print("deep ALG accuracy:", round(deep_ALG_accuracy, 3), "/", total_sims)
+		print("deep approx-ALG accuracy:", round(deep_approx_ALGs_accuracy, 3), "/", total_sims)
+
+		rearrangement_accuracy += compare_rearrangements(rearrangement_log, inferred_log, l_arg)
+		print("rearrangements accuracy:", round(rearrangement_accuracy, 3), "/", total_sims)
 

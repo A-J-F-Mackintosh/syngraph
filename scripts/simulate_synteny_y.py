@@ -26,6 +26,8 @@ import numpy
 from scipy import stats
 import random
 import ete3
+from dendropy.simulate import treesim
+import itertools
 
 sys.path.append('/ceph/users/amackintosh/software/syngraph/source/')
 import syngraph as sg
@@ -47,8 +49,26 @@ l_arg = int(args['--leaves'])
 
 
 def generate_random_tree(leaves):
-	tree = ete3.Tree()
-	tree.populate(size=leaves, random_branches=True, branch_range=(1, 10))
+	simed_tree = treesim.birth_death_tree(birth_rate=1.0, death_rate=0.5, num_extant_tips=leaves+1, 
+		repeat_until_success=True) # simulate initial tree with leaves + 1
+	newick_string = simed_tree.as_string(schema='newick')[5:-1] # convert to newick
+	tree = ete3.Tree(newick_string) # load into ete3
+	leaves = []
+	for idx, node in enumerate(tree.traverse()): # collect leaf names
+		if node.is_leaf():
+				leaves.append(node.name)
+	for combo in itertools.combinations(leaves, 2): # find one of the two leaves with an external branch length of 0
+		up_length, down_length = sg.get_branch_distances(tree, combo[0], combo[1])
+		if up_length + down_length == 0:
+			leaf_to_remove = combo[0]
+			break
+	simed_tree.prune_taxa_with_labels([leaf_to_remove]) # remove that leaf
+	# now we have a tree with the correct number of leaves
+	# this way of making trees replaces the n + 1 speciation event with sampling
+	newick_string = simed_tree.as_string(schema='newick')[5:-1]
+	tree = ete3.Tree(newick_string)
+	print(newick_string)
+	tree = ete3.Tree(newick_string)
 	for idx, node in enumerate(tree.traverse()):
 		if not node.is_leaf():
 				node.name = "n%s" % idx
@@ -223,7 +243,7 @@ class ParameterObj():
     def __init__(self, simulated_syngraph, tree, model, ancinf):
         self.syngraph = simulated_syngraph
         self.tree = tree
-        self.minimum = 5
+        self.minimum = 1
         self.model = model
         self.ancinf = ancinf
 
@@ -286,6 +306,23 @@ def rearrangement_length(inferred_log):
 	simulated_rearrangements.sort()
 	inferred_rearrangements.sort()
 	return len(inferred_rearrangements)
+
+def rearrangement_ratio(inferred_log):
+	translocations = 0
+	fissions_fusions = 0
+	for entry in inferred_log:
+		if entry == ['#parent', 'child', 'event', 'multiplicity', 'ref_seqs']:
+			pass
+		else:
+			for i in range(0, int(entry[3])):
+				if entry[2] == "translocation":
+					translocations += 1
+				else:
+					fissions_fusions += 1
+	if fissions_fusions + translocations == 0:
+		return "NA"
+	else:
+		return round(translocations / (fissions_fusions + translocations), 3)
 
 def get_deepest_node(tree):
 	n1_count = 0
@@ -363,19 +400,19 @@ else:
 		genome_dict = add_error(genome_dict, e_arg, g_arg, tree)
 		simulated_syngraph = syngraph_from_dict(genome_dict, tree)
 		simulated_syngraph_with_ancestors = syngraph_with_ancestors_from_dict(genome_dict, tree)
-		for model in [2, 3]:
-			parameterObj = ParameterObj(simulated_syngraph, tree, model, "quick")
-			solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
-			total_sims += 1
-			#perfect_genome, imperfect_genome = compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, deepest_node)
-			#correctly_inferred_ALGs += perfect_genome
-			#correctly_inferred_impALGs += imperfect_genome
-			#print("genomes:", correctly_inferred_ALGs, "/", total_sims)
-			#print("imperfect genomes:", correctly_inferred_impALGs, "/", total_sims)
-			#correctly_inferred_histories += compare_rearrangements(rearrangement_log, inferred_log)
-			#print("histories:", correctly_inferred_histories, "/", total_sims)
-			if model == 2:
-				two_length = rearrangement_length(inferred_log)
-			elif model == 3:
-				three_length = rearrangement_length(inferred_log)
-		print("Rearrangements delta: ", a_arg, two_length - three_length)
+
+		parameterObj = ParameterObj(simulated_syngraph, tree, 3, "quick")
+		solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
+		total_sims += 1
+		#perfect_genome, imperfect_genome = compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, deepest_node)
+		#correctly_inferred_ALGs += perfect_genome
+		#correctly_inferred_impALGs += imperfect_genome
+		#print("genomes:", correctly_inferred_ALGs, "/", total_sims)
+		#print("imperfect genomes:", correctly_inferred_impALGs, "/", total_sims)
+		#correctly_inferred_histories += compare_rearrangements(rearrangement_log, inferred_log)
+		#print("histories:", correctly_inferred_histories, "/", total_sims)
+		#if model == 2:
+			#two_length = rearrangement_ratio(inferred_log)
+		three_ratio = rearrangement_ratio(inferred_log)
+		if three_ratio != "NA":
+			print("Rearrangements delta: ", a_arg, three_ratio)
