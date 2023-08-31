@@ -292,21 +292,6 @@ def compare_rearrangements(rearrangement_log, inferred_log):
 	else:
 		return 0
 
-def rearrangement_length(inferred_log):
-	simulated_rearrangements = []
-	inferred_rearrangements = []
-	for entry in rearrangement_log:
-		simulated_rearrangements.append(entry)
-	for entry in inferred_log:
-		if entry == ['#parent', 'child', 'event', 'multiplicity', 'ref_seqs']:
-			pass
-		else:
-			for i in range(0, int(entry[3])):
-				inferred_rearrangements.append(entry[0:3])
-	simulated_rearrangements.sort()
-	inferred_rearrangements.sort()
-	return len(inferred_rearrangements)
-
 def rearrangement_ratio(inferred_log):
 	translocations = 0
 	fissions_fusions = 0
@@ -369,32 +354,12 @@ def add_error(genome_dict, error, genes, tree):
 
 total_sims = 0
 
-if l_arg <= 1:
-	sys.exit("[X] Cannot simulate rearrangements with 0 or 1 leaves")
-
-elif l_arg == 2:
-	for i in range(0, s_arg):
-		genome_dict, rearrangement_log = branch_traversal(k_arg, g_arg, a_arg, r_arg)
-		simulated_syngraph = syngraph_from_dict_for2(genome_dict)
-		LMSs, unassignable_markers = sg.get_LMSs(simulated_syngraph, ["A", "B"], 1)
-		ios_A = sg.compact_synteny_1(simulated_syngraph, LMSs, "A")
-		ios_B = sg.compact_synteny_1(simulated_syngraph, LMSs, "B")
-		if m_arg == 2:
-			inferred_log = sg.ffsd(sg.compact_synteny_2(ios_B, ios_A), [], 0)
-		elif m_arg == 3:
-			inferred_log = sg.ferretti(sg.compact_synteny_2(ios_B, ios_A), [], 0)
-		inferred_rearrangements = 0
-		for rearrangement in inferred_log:
-			inferred_rearrangements += rearrangement[3]
-		print(a_arg, inferred_rearrangements)
+if l_arg <= 2:
+	sys.exit("[X] Cannot simulate a tree with <= 2 leaves")
 
 else:
-	#correctly_inferred_ALGs = 0
-	#correctly_inferred_impALGs = 0
-	#correctly_inferred_histories = 0
 	for i in range(0, s_arg):
 		tree = generate_random_tree(l_arg)
-		deepest_node = get_deepest_node(tree)
 		genome_dict, rearrangement_log = tree_traversal(tree, k_arg, g_arg, a_arg, r_arg)
 		genome_dict = add_missingness(genome_dict, i_arg, g_arg, tree)
 		genome_dict = add_error(genome_dict, e_arg, g_arg, tree)
@@ -404,15 +369,7 @@ else:
 		parameterObj = ParameterObj(simulated_syngraph, tree, 3, "quick")
 		solved_syngraph, inferred_log = sg.tree_traversal(simulated_syngraph, parameterObj)
 		total_sims += 1
-		#perfect_genome, imperfect_genome = compare_genomes(simulated_syngraph_with_ancestors, solved_syngraph, deepest_node)
-		#correctly_inferred_ALGs += perfect_genome
-		#correctly_inferred_impALGs += imperfect_genome
-		#print("genomes:", correctly_inferred_ALGs, "/", total_sims)
-		#print("imperfect genomes:", correctly_inferred_impALGs, "/", total_sims)
-		#correctly_inferred_histories += compare_rearrangements(rearrangement_log, inferred_log)
-		#print("histories:", correctly_inferred_histories, "/", total_sims)
-		#if model == 2:
-			#two_length = rearrangement_ratio(inferred_log)
+
 		three_ratio = rearrangement_ratio(inferred_log)
 		if three_ratio != "NA":
 			print("Rearrangements delta: ", a_arg, three_ratio)

@@ -15,7 +15,6 @@ Usage: simulate_synteny.py -s <INT> -k <INT> -g <INT> -a <FLT> -r <STR> -m <INT>
     -i, --missingness <FLT>                     Proportion of markers missing from each genome
     -e, --error <FLT>                           Proportion of markers assigned to the wrong chromosome
     -l, --leaves <INT>                          Leaves in tree
-    -z, --anc_inference <STR>                   Infer ancestral chromosomes approximately (quick) or more accurately (slow) [default: quick]
     -h, --help                                  Show this message
 
 """
@@ -49,8 +48,6 @@ m_arg = int(args['--model'])
 i_arg = float(args['--missingness'])
 e_arg = float(args['--error'])
 l_arg = int(args['--leaves'])
-
-ai_arg = args['--anc_inference']
 
 
 def generate_random_tree(leaves):

@@ -203,7 +203,6 @@ def branch_traversal(k_arg, g_arg, a_arg, r_arg):
 				rearrangement_log.append(["A", "B", "translocation"])
 	return genome_dict, rearrangement_log
 
-
 def syngraph_from_dict(genome_dict, tree):
 	syngraph = sg.Syngraph()
 	for tree_node in genome_dict:
@@ -302,21 +301,6 @@ def compare_rearrangements(rearrangement_log, inferred_log):
 	else:
 		return 0
 
-def rearrangement_length(inferred_log):
-	simulated_rearrangements = []
-	inferred_rearrangements = []
-	for entry in rearrangement_log:
-		simulated_rearrangements.append(entry)
-	for entry in inferred_log:
-		if entry == ['#parent', 'child', 'event', 'multiplicity', 'ref_seqs']:
-			pass
-		else:
-			for i in range(0, int(entry[3])):
-				inferred_rearrangements.append(entry[0:3])
-	simulated_rearrangements.sort()
-	inferred_rearrangements.sort()
-	return len(inferred_rearrangements)
-
 def rearrangement_ratio(inferred_log):
 	translocations = 0
 	fissions_fusions = 0
@@ -381,7 +365,6 @@ total_sims = 0
 
 for i in range(0, s_arg):
 	tree = get_tree(t_arg)
-	deepest_node = get_deepest_node(tree)
 	genome_dict, rearrangement_log = tree_traversal(tree, k_arg, g_arg, a_arg, r_arg)
 	genome_dict = add_missingness(genome_dict, i_arg, g_arg, tree)
 	genome_dict = add_error(genome_dict, e_arg, g_arg, tree)
