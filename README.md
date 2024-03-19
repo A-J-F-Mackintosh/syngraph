@@ -5,7 +5,7 @@ A toolkit for evolutionary analyses of linkage groups
 Best addressed via [conda](https://docs.conda.io/en/latest/miniconda.html)
 
 ```
-$ conda install -c conda-forge networkx pandas docopt tqdm ete3 pygraphviz
+$ conda install pandas docopt ete3 pygraphviz matplotlib tqdm networkx=2.4 numpy=1.20.3=py38h9894fe3_0 python=3.8 more-itertools
 ```
 
 # Usage
