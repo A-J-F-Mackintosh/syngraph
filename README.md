@@ -78,3 +78,7 @@ n5      n7      fusion  1       [['n5_6'], ['n5_19']]
 # Help
 
 Syngraph is still under active development. Please open an issue if you have any questions about running the software or interpreting your results.
+
+# Cite
+
+If you use syngraph in your research then please cite [this preprint](https://www.biorxiv.org/content/10.1101/2023.09.17.558111v1).
